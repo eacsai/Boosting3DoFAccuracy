@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
-root_dir = '../../dataset/Kitti1' # '../../data/Kitti' # '../Data' #'..\\Data' #
+root_dir = '/home/wangqw/video_dataset/KITTI' # '../../data/Kitti' # '../Data' #'..\\Data' #
 # root_dir = '/media/yujiao/6TB/dataset/Kitti1'
 
 test_csv_file_name = 'test.csv'
@@ -132,7 +132,8 @@ class SatGrdDataset(Dataset):
                     break
 
         # =================== read satellite map ===================================
-        SatMap_name = os.path.join(self.root, self.satmap_dir, file_name)
+        mode_dir = 'train_10mgap'
+        SatMap_name = os.path.join(self.root, self.satmap_dir, mode_dir, file_name)
         with Image.open(SatMap_name, 'r') as SatMap:
             sat_map = SatMap.convert('RGB')
 
