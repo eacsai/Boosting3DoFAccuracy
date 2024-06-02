@@ -8,14 +8,14 @@ import os
 
 import torch
 import torch.optim as optim
-from dataLoader.KITTI_dataset import load_train_data, load_test1_data, load_test2_data
+from dataLoader.KITTI_dataset_seq import load_train_data, load_test1_data, load_test2_data
 import scipy.io as scio
 
 import ssl
 
 ssl._create_default_https_context = ssl._create_unverified_context  # for downloading pretrained VGG weights
 
-from models_kitti import Model
+from models_kitti_seq import Model
 
 import numpy as np
 import os
@@ -240,15 +240,15 @@ def train(net, lr, args, save_path):
 
         for Loop, Data in enumerate(trainloader, 0):
 
-            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading = [item.to(device) for item in Data[:-1]]
+            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left = [item.to(device) for item in Data[:-1]]
             file_name = Data[-1]
 
             optimizer.zero_grad()
 
             if args.proj == 'CrossAttn':
-                loss = net.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, mode='train')
+                loss = net.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='train')
             else:
-                loss = net.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, mode='train')
+                loss = net.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='train')
 
             loss.backward()
 
@@ -285,16 +285,20 @@ def parse_args():
 
     parser.add_argument('--coe_triplet', type=float, default=1, help='degree')
 
-    parser.add_argument('--batch_size', type=int, default=1, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=4, help='batch size')
 
     parser.add_argument('--level', type=int, default=3, help='2, 3, 4, -1, -2, -3, -4')
     parser.add_argument('--N_iters', type=int, default=5, help='any integer')
 
     parser.add_argument('--Optimizer', type=str, default='TransV1G2SP', help='it does not matter in the orientation-aligned setting')
 
-    parser.add_argument('--proj', type=str, default='CrossAttn', help='geo, polar, nn, CrossAttn')
+    parser.add_argument('--proj', type=str, default='geo', help='geo, polar, nn, CrossAttn')
     parser.add_argument('--use_uncertainty', type=int, default=1, help='0 or 1')
 
+    parser.add_argument('--sequence', type=int, default=4, help='0 or 1')
+    
+    parser.add_argument('--name', type=str, default='test', help='save model name')
+    
     args = parser.parse_args()
 
     return args
@@ -302,7 +306,7 @@ def parse_args():
 
 
 def getSavePath(args):
-    save_path = './ModelsKitti/2DoF/'\
+    save_path = './ModelsKitti/2DoF/' + args.name\
                 + '/lat' + str(args.shift_range_lat) + 'm_lon' + str(args.shift_range_lon) \
                 + 'm_' + str(args.proj) \
 

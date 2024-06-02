@@ -55,9 +55,9 @@ test2_file = './dataLoader/test2_files.txt'
 
 class SatGrdDataset(Dataset):
     def __init__(self, root, file,
-                 transform=None, shift_range_lat=20, shift_range_lon=20, rotation_range=10):
+                 transform=None, shift_range_lat=20, shift_range_lon=20, rotation_range=10, sequence=4):
         self.root = root
-
+        self.sequence = sequence
         self.meter_per_pixel = utils.get_meter_per_pixel(scale=1)
         self.shift_range_meters_lat = shift_range_lat  # in terms of meters
         self.shift_range_meters_lon = shift_range_lon  # in terms of meters
@@ -112,6 +112,29 @@ class SatGrdDataset(Dataset):
         drive_dir = file_name[:38]
         image_no = file_name[38:]
 
+        # =================== read file names within one sequence =====================
+        sequence_list = []
+        if self.sequence > 1:
+            # need get sequence count files
+            sequence_count = self.sequence
+
+            # get sequence count files in drive_dir in before, if not enough, get after
+            sequence_list.append(file_name)
+            tar_image_no = int(image_no.split('.')[0])
+            while len(sequence_list) < sequence_count:
+                tar_image_no = tar_image_no - self.skip_in_seq - 1
+
+                # create name of
+                tar_img_no = '%010d' % (tar_image_no) + '.png'
+                tar_file_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, right_color_camera_dir, tar_img_no)
+                if os.path.exists(tar_file_name):
+                    sequence_list.append(drive_dir + tar_img_no)
+                else:
+                    print('error, no enough sequence images in drive_dir:', drive_dir, len(sequence_list))
+                    break
+        else:
+            sequence_list.append(file_name)
+
         # =================== read camera intrinsice for left and right cameras ====================
         calib_file_name = os.path.join(self.root, grdimage_dir, day_dir, 'calib_cam_to_cam.txt')
         with open(calib_file_name, 'r') as f:
@@ -138,20 +161,41 @@ class SatGrdDataset(Dataset):
 
         # =================== initialize some required variables ============================
         grd_left_imgs = torch.tensor([])
+        gt_shift_xs = torch.tensor([])
+        gt_shift_ys = torch.tensor([])
+        thetas = torch.tensor([])
+        loc_left_array = torch.tensor([])
+        heading_array = torch.tensor([])
+        
         grd_left_depths = torch.tensor([])
-        image_no = file_name[38:]
+        
+        for i in range(len(sequence_list)):
+            file_name = sequence_list[i]
+            image_no = file_name[38:]
 
-        # oxt: such as 0000000000.txt
-        oxts_file_name = os.path.join(self.root, grdimage_dir, drive_dir, oxts_dir,
-                                      image_no.lower().replace('.png', '.txt'))
-        with open(oxts_file_name, 'r') as f:
+            # oxt: such as 0000000000.txt
+            oxts_file_name = os.path.join(self.root, grdimage_dir, drive_dir, oxts_dir,
+                                        image_no.lower().replace('.png', '.txt'))
+            with open(oxts_file_name, 'r') as f:
                 content = f.readline().split(' ')
+                
                 # get heading
                 heading = float(content[5])
-                heading = torch.from_numpy(np.asarray(heading))
 
+                # get location
+                # utm_x, utm_y = utils.gps2utm(float(content[0]), float(content[1]), lat0)  # location of the GPS device
+                utm_x, utm_y = utils.gps2utm(float(content[0]), float(content[1]))
+                delta_left_x, delta_left_y = utils.get_camera_gps_shift_left(
+                    heading)  # delta x and delta y between the GPS and the left camera device
+                
+                left_x = utm_x + delta_left_x
+                left_y = utm_y + delta_left_y
+                
+                loc_left = torch.from_numpy(np.asarray([left_x, left_y]))
+                heading = torch.from_numpy(np.asarray(heading))
+                
                 left_img_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, left_color_camera_dir,
-                                             image_no.lower())
+                                            image_no.lower())
                 with Image.open(left_img_name, 'r') as GrdImg:
                     grd_img_left = GrdImg.convert('RGB')
                     if self.grdimage_transform is not None:
@@ -165,18 +209,29 @@ class SatGrdDataset(Dataset):
 
                 grd_left_imgs = torch.cat([grd_left_imgs, grd_img_left.unsqueeze(0)], dim=0)
                 # grd_left_depths = torch.cat([grd_left_depths, left_depth.unsqueeze(0)], dim=0)
-
-        sat_rot = sat_map.rotate(-heading / np.pi * 180)
+                
+                loc_left_array = torch.cat([loc_left_array, loc_left.unsqueeze(0)], dim=0)
+                heading_array = torch.cat([heading_array, heading.unsqueeze(0)], dim=0)
+        
+        loc_shift_left = loc_left_array - loc_left_array[0:1, :]
+        heading_shift_left = (heading_array - heading_array[0])
+        # randomly generate shift
+        gt_shift_x = np.random.uniform(-1, 1)  # --> right as positive, parallel to the heading direction
+        gt_shift_y = np.random.uniform(-1, 1)  # --> up as positive, vertical to the heading direction
+        # randomly generate roation
+        theta = np.random.uniform(-1, 1)
+        
+        gt_shift_xs = -loc_shift_left[:,0] / self.shift_range_pixels_lon - gt_shift_x
+        gt_shift_ys = -loc_shift_left[:,1] / self.shift_range_pixels_lat - gt_shift_y
+        thetas = heading_shift_left / np.pi * 180 / max(self.rotation_range, 1e-6) + theta
+        
+        sat_rot = sat_map.rotate(-heading_array[0] / np.pi * 180)
         sat_align_cam = sat_rot.transform(sat_rot.size, Image.AFFINE,
                                           (1, 0, utils.CameraGPS_shift_left[0] / self.meter_per_pixel,
                                            0, 1, utils.CameraGPS_shift_left[1] / self.meter_per_pixel),
                                           resample=Image.BILINEAR)
         # the homography is defined on: from target pixel to source pixel
         # now east direction is the real vehicle heading direction
-
-        # randomly generate shift
-        gt_shift_x = np.random.uniform(-1, 1)  # --> right as positive, parallel to the heading direction
-        gt_shift_y = np.random.uniform(-1, 1)  # --> up as positive, vertical to the heading direction
 
         sat_rand_shift = \
             sat_align_cam.transform(
@@ -185,8 +240,6 @@ class SatGrdDataset(Dataset):
                  0, 1, -gt_shift_y * self.shift_range_pixels_lat),
                 resample=Image.BILINEAR)
 
-        # randomly generate roation
-        theta = np.random.uniform(-1, 1)
         sat_rand_shift_rand_rot = \
             sat_rand_shift.rotate(theta * self.rotation_range)
 
@@ -199,11 +252,7 @@ class SatGrdDataset(Dataset):
         
         # gt_corr_x, gt_corr_y = self.generate_correlation_GTXY(gt_shift_x, gt_shift_y, theta)
 
-        return sat_map, left_camera_k, grd_left_imgs[0], \
-               torch.tensor(-gt_shift_x, dtype=torch.float32).reshape(1), \
-               torch.tensor(-gt_shift_y, dtype=torch.float32).reshape(1), \
-               torch.tensor(theta, dtype=torch.float32).reshape(1), \
-               file_name
+        return sat_map, left_camera_k, grd_left_imgs, torch.tensor(gt_shift_xs, dtype=torch.float32), torch.tensor(gt_shift_ys, dtype=torch.float32), torch.tensor(thetas, dtype=torch.float32), torch.tensor(loc_shift_left, dtype=torch.float32), torch.tensor(heading_shift_left, dtype=torch.float32), file_name
 
 
     # def generate_correlation_GTXY(self, gt_shift_x, gt_shift_y, gt_heading):
@@ -223,9 +272,9 @@ class SatGrdDataset(Dataset):
 
 class SatGrdDatasetTest(Dataset):
     def __init__(self, root, file,
-                 transform=None, shift_range_lat=20, shift_range_lon=20, rotation_range=10):
+                 transform=None, shift_range_lat=20, shift_range_lon=20, rotation_range=10, sequence = 4):
         self.root = root
-
+        self.sequence = sequence
         self.meter_per_pixel = utils.get_meter_per_pixel(scale=1)
         self.shift_range_meters_lat = shift_range_lat  # in terms of meters
         self.shift_range_meters_lon = shift_range_lon  # in terms of meters
@@ -282,6 +331,29 @@ class SatGrdDatasetTest(Dataset):
         drive_dir = file_name[:38]
         image_no = file_name[38:]
 
+                # =================== read file names within one sequence =====================
+        sequence_list = []
+        if self.sequence > 1:
+            # need get sequence count files
+            sequence_count = self.sequence
+
+            # get sequence count files in drive_dir in before, if not enough, get after
+            sequence_list.append(file_name)
+            tar_image_no = int(image_no.split('.')[0])
+            while len(sequence_list) < sequence_count:
+                tar_image_no = tar_image_no - self.skip_in_seq - 1
+
+                # create name of
+                tar_img_no = '%010d' % (tar_image_no) + '.png'
+                tar_file_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, right_color_camera_dir, tar_img_no)
+                if os.path.exists(tar_file_name):
+                    sequence_list.append(drive_dir + tar_img_no)
+                else:
+                    print('error, no enough sequence images in drive_dir:', drive_dir, len(sequence_list))
+                    break
+        else:
+            sequence_list.append(file_name)
+        
         # =================== read camera intrinsice for left and right cameras ====================
         calib_file_name = os.path.join(self.root, grdimage_dir, day_dir, 'calib_cam_to_cam.txt')
         with open(calib_file_name, 'r') as f:
@@ -311,31 +383,37 @@ class SatGrdDatasetTest(Dataset):
         grd_left_depths = torch.tensor([])
         # image_no = file_name[38:]
 
-        # oxt: such as 0000000000.txt
-        oxts_file_name = os.path.join(self.root, grdimage_dir, drive_dir, oxts_dir,
-                                      image_no.lower().replace('.png', '.txt'))
-        with open(oxts_file_name, 'r') as f:
-            content = f.readline().split(' ')
-            # get heading
-            heading = float(content[5])
-            heading = torch.from_numpy(np.asarray(heading))
+        
+        for i in range(len(sequence_list)):
+            file_name = sequence_list[i]
+            image_no = file_name[38:]
+            # oxt: such as 0000000000.txt
+            oxts_file_name = os.path.join(self.root, grdimage_dir, drive_dir, oxts_dir,
+                                        image_no.lower().replace('.png', '.txt'))
+            
+            with open(oxts_file_name, 'r') as f:
+                content = f.readline().split(' ')
+                if i == 0:
+                    # get heading
+                    heading = float(content[5])
+                    heading = torch.from_numpy(np.asarray(heading))
 
-            left_img_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, left_color_camera_dir,
-                                         image_no.lower())
-            with Image.open(left_img_name, 'r') as GrdImg:
-                grd_img_left = GrdImg.convert('RGB')
-                if self.grdimage_transform is not None:
-                    grd_img_left = self.grdimage_transform(grd_img_left)
+                left_img_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, left_color_camera_dir,
+                                            image_no.lower())
+                with Image.open(left_img_name, 'r') as GrdImg:
+                    grd_img_left = GrdImg.convert('RGB')
+                    if self.grdimage_transform is not None:
+                        grd_img_left = self.grdimage_transform(grd_img_left)
 
-            # left_depth_name = os.path.join(self.root, depth_dir, file_name.split('/')[1],
-            #                                'proj_depth/groundtruth/image_02', image_no)
+                # left_depth_name = os.path.join(self.root, depth_dir, file_name.split('/')[1],
+                #                                'proj_depth/groundtruth/image_02', image_no)
 
-            # left_depth = torch.tensor(depth_read(left_depth_name), dtype=torch.float32)
-            # left_depth = F.interpolate(left_depth[None, None, :, :], (GrdImg_H, GrdImg_W))
-            # left_depth = left_depth[0, 0]
+                # left_depth = torch.tensor(depth_read(left_depth_name), dtype=torch.float32)
+                # left_depth = F.interpolate(left_depth[None, None, :, :], (GrdImg_H, GrdImg_W))
+                # left_depth = left_depth[0, 0]
 
-            grd_left_imgs = torch.cat([grd_left_imgs, grd_img_left.unsqueeze(0)], dim=0)
-            # grd_left_depths = torch.cat([grd_left_depths, left_depth.unsqueeze(0)], dim=0)
+                grd_left_imgs = torch.cat([grd_left_imgs, grd_img_left.unsqueeze(0)], dim=0)
+                # grd_left_depths = torch.cat([grd_left_depths, left_depth.unsqueeze(0)], dim=0)
 
         sat_rot = sat_map.rotate(-heading / np.pi * 180)
         sat_align_cam = sat_rot.transform(sat_rot.size, Image.AFFINE,
