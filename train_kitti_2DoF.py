@@ -241,7 +241,6 @@ def train(net, lr, args, save_path):
         for Loop, Data in enumerate(trainloader, 0):
 
             sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading = [item.to(device) for item in Data[:-1]]
-            file_name = Data[-1]
 
             optimizer.zero_grad()
 
@@ -294,7 +293,8 @@ def parse_args():
 
     parser.add_argument('--proj', type=str, default='CrossAttn', help='geo, polar, nn, CrossAttn')
     parser.add_argument('--use_uncertainty', type=int, default=1, help='0 or 1')
-
+    parser.add_argument('--name', type=str, default='test', help='save name')
+    
     args = parser.parse_args()
 
     return args
@@ -302,7 +302,7 @@ def parse_args():
 
 
 def getSavePath(args):
-    save_path = './ModelsKitti/2DoF/'\
+    save_path = './ModelsKitti/2DoF/' + args.name\
                 + '/lat' + str(args.shift_range_lat) + 'm_lon' + str(args.shift_range_lon) \
                 + 'm_' + str(args.proj) \
 

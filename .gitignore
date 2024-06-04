@@ -1,2 +1,5 @@
 *.pyc
 *.pth
+*.txt
+*.mat
+*.png

@@ -29,7 +29,7 @@ def test1(net_test, args, save_path, epoch):
     ### net evaluation state
     net_test.eval()
 
-    dataloader = load_test1_data(mini_batch, args.shift_range_lat, args.shift_range_lon, args.rotation_range)
+    dataloader = load_test1_data(mini_batch, args.shift_range_lat, args.shift_range_lon, args.rotation_range, sequence=args.sequence)
     
     pred_lons = []
     pred_lats = []
@@ -39,12 +39,12 @@ def test1(net_test, args, save_path, epoch):
 
     with torch.no_grad():
         for i, data in enumerate(dataloader, 0):
-            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading = [item.to(device) for item in data[:-1]]
+            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left = [item.to(device) for item in data]
 
             if args.proj == 'CrossAttn':
                 pred_u, pred_v = net_test.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_heading=gt_heading, mode='test')
             else:
-                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_heading=gt_heading, mode='test')
+                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='test')
 
             pred_lons.append(pred_u.data.cpu().numpy())
             pred_lats.append(pred_v.data.cpu().numpy())
@@ -60,8 +60,8 @@ def test1(net_test, args, save_path, epoch):
 
     gt_lons = np.concatenate(gt_lons, axis=0)
     gt_lats = np.concatenate(gt_lats, axis=0)
-    scio.savemat(os.path.join(save_path, 'test1_result.mat'), {'gt_lons': gt_lons, 'gt_lats': gt_lats,
-                                                         'pred_lats': pred_lats, 'pred_lons': pred_lons})
+    # scio.savemat(os.path.join(save_path, 'test1_result.mat'), {'gt_lons': gt_lons, 'gt_lats': gt_lats,
+    #                                                      'pred_lats': pred_lats, 'pred_lons': pred_lons})
 
     distance = np.sqrt((pred_lons - gt_lons) ** 2 + (pred_lats - gt_lats) ** 2)  # [N]
 
@@ -136,12 +136,12 @@ def test2(net_test, args, save_path, epoch):
 
     with torch.no_grad():
         for i, data in enumerate(dataloader, 0):
-            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading = [item.to(device) for item
-                                                                                                   in data[:-1]]
+            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left = [item.to(device) for item in data]
+            
             if args.proj == 'CrossAttn':
                 pred_u, pred_v = net_test.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_heading=gt_heading, mode='test')
             else:
-                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_heading=gt_heading, mode='test')
+                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='test')
 
             pred_lons.append(pred_u.data.cpu().numpy())
             pred_lats.append(pred_v.data.cpu().numpy())
@@ -221,7 +221,7 @@ def test2(net_test, args, save_path, epoch):
     return
 
 
-def train(net, lr, args, save_path):
+def train(net, lr, args, save_path, device):
 
     for epoch in range(args.resume, args.epochs):
         net.train()
@@ -232,7 +232,7 @@ def train(net, lr, args, save_path):
         optimizer = optim.Adam(net.parameters(), lr=base_lr)
         optimizer.zero_grad()
 
-        trainloader = load_train_data(mini_batch, args.shift_range_lat, args.shift_range_lon, args.rotation_range)
+        trainloader = load_train_data(mini_batch, args.shift_range_lat, args.shift_range_lon, args.rotation_range, sequence=args.sequence)
 
         loss_vec = []
 
@@ -264,8 +264,8 @@ def train(net, lr, args, save_path):
 
         torch.save(net.state_dict(), os.path.join(save_path, 'model_' + str(epoch) + '.pth'))
 
-        test1(net, args, save_path, epoch)
-        test2(net, args, save_path, epoch)
+        # test1(net, args, save_path, epoch)
+        # test2(net, args, save_path, epoch)
 
     print('Finished Training')
 
@@ -298,6 +298,7 @@ def parse_args():
     parser.add_argument('--sequence', type=int, default=4, help='0 or 1')
     
     parser.add_argument('--name', type=str, default='test', help='save model name')
+    parser.add_argument('--gpu_id', type=str, default='0', help='use gpu id')
     
     args = parser.parse_args()
 
@@ -306,7 +307,7 @@ def parse_args():
 
 
 def getSavePath(args):
-    save_path = './ModelsKitti/2DoF/' + args.name\
+    save_path = './ModelsKitti/2DoF/' + str(args.name)\
                 + '/lat' + str(args.shift_range_lat) + 'm_lon' + str(args.shift_range_lon) \
                 + 'm_' + str(args.proj) \
 
@@ -323,20 +324,20 @@ def getSavePath(args):
 
 if __name__ == '__main__':
 
+    args = parse_args()
+
     if torch.cuda.is_available():
-        device = torch.device("cuda:0")
+        device = torch.device(f"cuda:{args.gpu_id}")
     else:
         device = torch.device("cpu")
 
     np.random.seed(2022)
 
-    args = parse_args()
-
     mini_batch = args.batch_size
 
     save_path = getSavePath(args)
 
-    net = Model(args)
+    net = Model(args, device)
     net.to(device)
 
     if args.test:
@@ -351,5 +352,5 @@ if __name__ == '__main__':
 
         lr = args.lr
 
-        train(net, lr, args, save_path)
+        train(net, lr, args, save_path, device)
 

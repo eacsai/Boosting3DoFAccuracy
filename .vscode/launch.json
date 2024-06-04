@@ -5,6 +5,23 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Train KITTI 2Dof sequence",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "--batch_size",
+        "1",
+        "--proj",
+        "geo",
+        "--sequence",
+        "1",
+        "--name",
+        "test",
+      ]
+    },
+    {
       "name": "Train KITTI 2Dof",
       "type": "debugpy",
       "request": "launch",
@@ -12,9 +29,30 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "4",
+        "1",
         "--proj",
-        "geo"
+        "geo",
+        "--name",
+        "test",
+      ]
+    },
+    {
+      "name": "Test KITTI 2Dof sequence",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "--batch_size",
+        "1",
+        "--proj",
+        "geo",
+        "--test",
+        "1",
+        "--name",
+        "seq4",
+        "--sequence",
+        "4"
       ]
     }
   ]

@@ -13,15 +13,17 @@ from RNNs import Uncertainty
 from swin_transformer import TransOptimizerS2GP_V1, TransOptimizerG2SP_V1
 from cross_attention import CrossViewAttention
 from Transformer import TransformerFusion
+from torchvision import transforms
+to_pil_image = transforms.ToPILImage()
 
 EPS = utils.EPS
 
 class Model(nn.Module):
-    def __init__(self, args):  # device='cuda:0',
+    def __init__(self, args, device):  # device='cuda:0',
         super(Model, self).__init__()
 
         self.args = args
-
+        self.device = device
         self.level = args.level
         self.N_iters = args.N_iters
 
@@ -198,7 +200,7 @@ class Model(nn.Module):
         # realword: X: south, Y:down, Z: east   origin is set to the ground plane
 
         # meshgrid the sat pannel
-        i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
+        i = j = torch.arange(0, satmap_sidelength).to(self.device)  # to(self.device)
         ii, jj = torch.meshgrid(i, j)  # i:h,j:w
 
         # uv is coordinate from top/left, v: south, u:east
@@ -207,12 +209,12 @@ class Model(nn.Module):
         # sat map from top/left to center coordinate
         u0 = v0 = satmap_sidelength // 2
         uv_center = uv - torch.tensor(
-            [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+            [u0, v0]).to(self.device)  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
 
         # affine matrix: scale*R
         meter_per_pixel = utils.get_meter_per_pixel()
         meter_per_pixel *= utils.get_process_satmap_sidelength() / satmap_sidelength
-        R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
+        R = torch.tensor([[0, 1], [1, 0]]).float().to(self.device)  # to(self.device) # u_center->z, v_center->x
         Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
 
         # Trans matrix from sat to realword
@@ -238,11 +240,11 @@ class Model(nn.Module):
         else:
             heading = ori_heading * self.args.rotation_range / 180 * np.pi
 
-        cos = torch.cos(-heading)
-        sin = torch.sin(-heading)
+        cos = torch.cos(-heading).unsqueeze(-1)
+        sin = torch.sin(-heading).unsqueeze(-1)
         zeros = torch.zeros_like(cos)
         ones = torch.ones_like(cos)
-        R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)  # shape = [B,9]
+        R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)   # shape = [B,9]
         R = R.view(B, S, 3, 3)  # shape = [B,S,3,3]
 
         camera_height = utils.get_camera_height()
@@ -250,13 +252,14 @@ class Model(nn.Module):
         height = camera_height * torch.ones_like(shift_u_meters)
         T = torch.cat([shift_v_meters, height, -shift_u_meters], dim=-1)  # shape = [B, 3]
         T = torch.unsqueeze(T, dim=-1)  # shape = [B,S,3,1]
-
+        T = torch.einsum('bsij, bsjk -> bsik', R, T)
+        
         # P = K[R|T]
         camera_k = ori_camera_k.clone()
         camera_k[:, :1, :] = ori_camera_k[:, :1,
                              :] * grd_W / ori_grdW  # original size input into feature get network/ output of feature get network
         camera_k[:, 1:2, :] = ori_camera_k[:, 1:2, :] * grd_H / ori_grdH
-        P = camera_k @ torch.cat([R, T], dim=-1)
+        P = torch.einsum('bij, bsjk -> bsik', camera_k, torch.cat([R, T], dim=-1)).float()  # shape = [B,S,3,4]
 
         uv1 = torch.einsum('bsij, ehwj -> bsehwi', P, XYZ_1.unsqueeze(0)) # shape = [B,S,E,H,W,3]
         # only need view in front of camera ,Epsilon = 1e-6
@@ -360,6 +363,25 @@ class Model(nn.Module):
 
         B, S, C_in, ori_grdH, ori_grdW = grd_img_left.shape
 
+        shift_u = loc_shift_left[:,:,:1]
+        shift_v = loc_shift_left[:,:,1:]
+        # heading = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
+        if self.args.rotation_range == 0:
+            heading = heading_shift_left
+        else:
+            heading = gt_heading
+            
+        # test_proj, _, u, mask = self.project_grd_to_map(
+        #         grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+        
+        # show_sat = sat_map[0,:,:,:]    
+        # sat_image = to_pil_image(show_sat)
+        # sat_image.save('sat_image.png')
+        # for i in range(test_proj.shape[1]):
+        #     show_project = test_proj[0,i,0,:,:,:]
+        #     pro_image = to_pil_image(show_project)
+        #     pro_image.save(f'pro_image{i}.png')
+        
         sat_feat_list, sat_conf_list = self.SatFeatureNet(sat_map)
 
         grd_feat_list, grd_conf_list = self.GrdFeatureNet(grd_img_left.view(-1, C_in, ori_grdH, ori_grdW))
@@ -371,14 +393,6 @@ class Model(nn.Module):
             grd_feat_list_res.append(grd_feat.view(B, S, C, H_g, W_g))
         
         grd_feat_list = grd_feat_list_res
-        shift_u = loc_shift_left[:,:,:1]
-        shift_v = loc_shift_left[:,:,1:]
-        # heading = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
-        if self.args.rotation_range == 0:
-            heading = heading_shift_left
-        else:
-            heading = gt_heading
-            
         corr_maps = []
 
         for level in range(len(sat_feat_list)):
