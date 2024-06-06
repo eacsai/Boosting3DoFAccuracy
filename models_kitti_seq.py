@@ -14,9 +14,129 @@ from swin_transformer import TransOptimizerS2GP_V1, TransOptimizerG2SP_V1
 from cross_attention import CrossViewAttention
 from Transformer import TransformerFusion
 from torchvision import transforms
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
+
+from visualize import *
 to_pil_image = transforms.ToPILImage()
 
 EPS = utils.EPS
+
+def normalize(x):
+    denominator = np.linalg.norm(x, axis=-1, keepdims=True)
+    denominator = np.where(denominator == 0, 1, denominator)
+    return x / denominator
+
+def reshape_normalize(x):
+    '''
+    Args:
+        x: [B, C, H, W]
+
+    Returns:
+
+    '''
+    B, C, H, W = x.shape
+    x = x.transpose([0, 2, 3, 1]).reshape([-1, C])
+
+    denominator = np.linalg.norm(x, axis=-1, keepdims=True)
+    denominator = np.where(denominator==0, 1, denominator)
+    return x / denominator
+  
+def all_features_to_RGB(sat_features, fuse_features,grd_features):
+    sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
+    fuse_feat = fuse_features[:1,:,:,:].data.cpu().numpy()
+    grd_feat = grd_features[0,:,0,:,:,:].data.cpu().numpy()
+    # 1. 重塑特征图形状为 [256, 64*64]
+    B, C, H, W = fuse_feat.shape
+    S = grd_features.shape[1]
+    flatten = np.concatenate([grd_feat, fuse_feat], axis=0)
+    # 2. 进行 PCA 降维到 3 维
+    pca = PCA(n_components=3)
+    pca.fit(reshape_normalize(flatten))
+    # 3. 归一化到 [0, 1] 范围
+    sat_feat_new = ((normalize(pca.transform(reshape_normalize(sat_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+    # mask_fuse = fuse_features[:1,0,:,:,None].data.cpu().numpy()
+    # mask_fuse = mask_fuse / mask_fuse.max()
+    # mask = np.linalg.norm(fuse_feat, axis=1)[:, :, :, None] > 0
+    fuse_feat_new = ((normalize(pca.transform(reshape_normalize(fuse_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+    
+    # mask_grd = grd_features[0,:,0,0,:,:,None].data.cpu().numpy()
+    # mask_grd = mask_grd / mask_grd.max()
+    # mask = np.linalg.norm(grd_feat, axis=1)[:, :, :, None] > 0
+    grd_feat_new = ((normalize(pca.transform(reshape_normalize(grd_feat))) + 1 )/ 2).reshape(S, H, W, 3)
+
+    sat = Image.fromarray((sat_feat_new[0] * 255).astype(np.uint8))
+    sat = sat.resize((512, 512))
+    sat.save('sat_image.png')
+    
+    fuse = Image.fromarray((fuse_feat_new[0] * 255).astype(np.uint8))
+    fuse = fuse.resize((512, 512))
+    fuse.save('fuse_image.png')
+    
+    for i in range(S):
+        grd = Image.fromarray((grd_feat_new[i] * 255).astype(np.uint8))
+        grd = grd.resize((512, 512))
+        grd.save(f'grd_image{i}.png') 
+   
+    
+def grd_features_to_RGB(sat_features, fuse_features,grd_features):
+    sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
+    fuse_feat = fuse_features[:1,:,:,:].data.cpu().numpy()
+    grd_feat = grd_features[0,:,0,:,:,:].data.cpu().numpy()
+    # 1. 重塑特征图形状为 [256, 64*64]
+    B, C, H, W = fuse_feat.shape
+    S = grd_features.shape[1]
+    flatten = np.concatenate([grd_feat, fuse_feat], axis=0)
+    # 2. 进行 PCA 降维到 3 维
+    pca = PCA(n_components=3)
+    pca.fit(reshape_normalize(flatten))
+    
+    # 3. 归一化到 [0, 1] 范围
+    sat_feat_new = ((normalize(pca.transform(reshape_normalize(sat_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+    # mask_fuse = fuse_features[:1,0,:,:,None].data.cpu().numpy()
+    # mask_fuse = mask_fuse / mask_fuse.max()
+    # mask = np.linalg.norm(fuse_feat, axis=1)[:, :, :, None] > 0
+    fuse_feat_new = ((normalize(pca.transform(reshape_normalize(fuse_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+    
+    # mask_grd = grd_features[0,:,0,0,:,:,None].data.cpu().numpy()
+    # mask_grd = mask_grd / mask_grd.max()
+    # mask = np.linalg.norm(grd_feat, axis=1)[:, :, :, None] > 0
+    grd_feat_new = ((normalize(pca.transform(reshape_normalize(grd_feat))) + 1 )/ 2).reshape(S, H, W, 3)
+
+    sat = Image.fromarray((sat_feat_new[0] * 255).astype(np.uint8))
+    sat = sat.resize((512, 512))
+    sat.save('sat_image.png')
+    
+    fuse = Image.fromarray((fuse_feat_new[0] * 255).astype(np.uint8))
+    fuse = fuse.resize((512, 512))
+    fuse.save('fuse_image.png')
+    
+    for i in range(S):
+        grd = Image.fromarray((grd_feat_new[i] * 255).astype(np.uint8))
+        grd = grd.resize((512, 512))
+        grd.save(f'grd_image{i}.png')
+
+def sat_features_to_RGB(sat_features, fuse_features):
+    sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
+    fuse_feat = fuse_features[:1,:,:,:].data.cpu().numpy()
+    # 1. 重塑特征图形状为 [256, 64*64]
+    B, C, H, W = sat_feat.shape
+    flatten = np.concatenate([sat_feat, fuse_feat], axis=0)
+    # 2. 进行 PCA 降维到 3 维
+    pca = PCA(n_components=3)
+    pca.fit(reshape_normalize(flatten))
+    
+    # 3. 归一化到 [0, 1] 范围
+    sat_feat_new = ((normalize(pca.transform(reshape_normalize(sat_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+    fuse_feat_new = ((normalize(pca.transform(reshape_normalize(fuse_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+
+    sat = Image.fromarray((sat_feat_new[0] * 255).astype(np.uint8))
+    sat = sat.resize((512, 512))
+    sat.save('sat_feat.png')
+    
+    fuse = Image.fromarray((fuse_feat_new[0] * 255).astype(np.uint8))
+    fuse = fuse.resize((512, 512))
+    fuse.save('fuse_image_new.png')
 
 class Model(nn.Module):
     def __init__(self, args, device):  # device='cuda:0',
@@ -253,7 +373,6 @@ class Model(nn.Module):
         T = torch.cat([shift_v_meters, height, -shift_u_meters], dim=-1)  # shape = [B, 3]
         T = torch.unsqueeze(T, dim=-1)  # shape = [B,S,3,1]
         T = torch.einsum('bsij, bsjk -> bsik', R, T)
-        
         # P = K[R|T]
         camera_k = ori_camera_k.clone()
         camera_k[:, :1, :] = ori_camera_k[:, :1,
@@ -370,7 +489,8 @@ class Model(nn.Module):
             heading = heading_shift_left
         else:
             heading = gt_heading
-            
+        
+        # vis
         # test_proj, _, u, mask = self.project_grd_to_map(
         #         grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
         
@@ -406,8 +526,18 @@ class Model(nn.Module):
                 grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
             
             # SequenceFusion
-            grd_feature = self.SequenceFusion(grd_feat_proj)  #[B,C,H,W]
+            # if S == 1:
+            #     grd_feature = grd_feat_proj[:,0,0,:,:,:]
+            # else:
+            #     if mode == 'train':
+            #         grd_feature = self.SequenceFusion(grd_feat_proj)  #[B,C,H,W]
+            #     else:
+            #         grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
             
+            if mode == 'train':
+                grd_feature = self.SequenceFusion(grd_feat_proj)  #[B,C,H,W]
+            else:
+                grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
             crop_H = int(A - self.args.shift_range_lat * 3 / meter_per_pixel)
             crop_W = int(A - self.args.shift_range_lon * 3 / meter_per_pixel)
             g2s_feat = TF.center_crop(grd_feature, [crop_H, crop_W])
@@ -435,7 +565,11 @@ class Model(nn.Module):
             pred_u1 = pred_u * cos + pred_v * sin
             pred_v1 = - pred_u * sin + pred_v * cos
 
-
+            
+            # grd_features_to_RGB(grd_feature, grd_feat_proj)
+            # sat_features_to_RGB(sat_feat, fuse_features=grd_feature)
+            
+            
         if mode == 'train':
             return self.triplet_loss(corr_maps, gt_shift_u, gt_shift_v, gt_heading)
         else:

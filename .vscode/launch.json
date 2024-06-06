@@ -12,11 +12,11 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "1",
+        "2",
         "--proj",
         "geo",
         "--sequence",
-        "1",
+        "12",
         "--name",
         "test",
       ]
@@ -33,7 +33,7 @@
         "--proj",
         "geo",
         "--name",
-        "test",
+        "original",
       ]
     },
     {
@@ -44,7 +44,7 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "1",
+        "2",
         "--proj",
         "geo",
         "--test",
@@ -52,8 +52,25 @@
         "--name",
         "seq4",
         "--sequence",
-        "4"
+        "12"
       ]
-    }
+    },
+    {
+      "name": "Test KITTI 2Dof",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "--batch_size",
+        "14",
+        "--proj",
+        "geo",
+        "--name",
+        "original",
+        "--test",
+        "1",
+      ]
+    },
   ]
 }

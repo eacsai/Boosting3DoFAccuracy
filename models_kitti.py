@@ -333,7 +333,7 @@ class Model(nn.Module):
         shift_u = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
         shift_v = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
         # heading = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
-
+        heading = gt_heading
         corr_maps = []
 
         for level in range(len(sat_feat_list)):
@@ -343,7 +343,6 @@ class Model(nn.Module):
             grd_feat = grd_feat_list[level]
 
             A = sat_feat.shape[-1]
-            heading = gt_heading + np.random.uniform(- self.args.coe_heading_aug, self.args.coe_heading_aug)
             grd_feat_proj, _, u, mask = self.project_grd_to_map(
                 grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW)
 

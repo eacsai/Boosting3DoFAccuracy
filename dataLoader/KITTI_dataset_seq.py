@@ -210,20 +210,43 @@ class SatGrdDataset(Dataset):
                 loc_left_array = torch.cat([loc_left_array, loc_left.unsqueeze(0)], dim=0)
                 heading_array = torch.cat([heading_array, heading.unsqueeze(0)], dim=0)
         
-        loc_shift_left = (loc_left_array - loc_left_array[0:1, :])
+        locations = []
+        prev_img_data = None
+        loc_left_array = torch.flip(loc_left_array, [0])
+        heading_array = torch.flip(heading_array, [0])
+        for frame in range(len(loc_left_array)):
+            if prev_img_data is not None:
+                x = loc_left_array[frame][0] - prev_img_data[0]
+                y = loc_left_array[frame][1] - prev_img_data[1]
+                gps_distance = torch.sqrt(torch.pow(x, 2)+torch.pow(y,2))
+                yaw_change = heading_array[frame] - prev_img_data[2]
+                for i in range(len(locations)):
+                    x0, y0 = locations[i]
+                    x1 = x0 * torch.cos(yaw_change) + y0 * torch.sin(yaw_change) - gps_distance
+                    y1 = -x0 * torch.sin(yaw_change) + y0 * torch.cos(yaw_change)
+                    locations[i] = torch.tensor([x1,y1], dtype=torch.float32)
+            locations += [torch.tensor([0,0], dtype=torch.float32)]
+            prev_img_data = [loc_left_array[frame][0], loc_left_array[frame][1], heading_array[frame]]
+        locations = torch.stack(locations)
+        locations = torch.flip(locations, [0])
+        
         heading_shift_left = (heading_array - heading_array[0])
+        
+        # loc_shift_left = (loc_left_array - loc_left_array[0:1, :])
+
         # 旋转矩阵
-        R = torch.tensor([[torch.cos(heading_array[0] / torch.pi * 180), -torch.sin(heading_array[0] / torch.pi * 180)],
-                      [torch.sin(heading_array[0] / torch.pi * 180), torch.cos(heading_array[0] / torch.pi * 180)]])
-        loc_shift_left = torch.matmul(loc_shift_left, R.T)
+        # R = torch.tensor([[torch.cos(heading_array[0] / torch.pi * 180), -torch.sin(heading_array[0] / torch.pi * 180)],
+        #               [torch.sin(heading_array[0] / torch.pi * 180), torch.cos(heading_array[0] / torch.pi * 180)]])
+        # loc_shift_left = torch.matmul(loc_shift_left, R.T)
+        
         # randomly generate shift
         gt_shift_x = np.random.uniform(-1, 1)  # --> right as positive, parallel to the heading direction
         gt_shift_y = np.random.uniform(-1, 1)  # --> up as positive, vertical to the heading direction
         # randomly generate roation
         theta = np.random.uniform(-1, 1)
         
-        gt_shift_xs = -loc_shift_left[:,0] / self.shift_range_pixels_lon - gt_shift_x
-        gt_shift_ys = -loc_shift_left[:,1] / self.shift_range_pixels_lat - gt_shift_y
+        gt_shift_xs = -locations[:,0] / self.shift_range_pixels_lon - gt_shift_x
+        gt_shift_ys = -locations[:,1] / self.shift_range_pixels_lat - gt_shift_y
         thetas = heading_shift_left / torch.pi * 180 / max(self.rotation_range, 1e-6) + theta
         
         sat_rot = sat_map.rotate(-heading_array[0] / torch.pi * 180)
@@ -253,7 +276,7 @@ class SatGrdDataset(Dataset):
         
         # gt_corr_x, gt_corr_y = self.generate_correlation_GTXY(gt_shift_x, gt_shift_y, theta)
 
-        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), loc_shift_left.float(), heading_shift_left.float(), file_name
+        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), locations.float(), heading_shift_left.float(), file_name
 
 
     # def generate_correlation_GTXY(self, gt_shift_x, gt_shift_y, gt_heading):
@@ -434,7 +457,34 @@ class SatGrdDatasetTest(Dataset):
                 loc_left_array = torch.cat([loc_left_array, loc_left.unsqueeze(0)], dim=0)
                 heading_array = torch.cat([heading_array, heading.unsqueeze(0)], dim=0)
         
-        loc_shift_left = loc_left_array - loc_left_array[0:1, :]
+        
+        locations = []
+        prev_img_data = None
+        loc_left_array = torch.flip(loc_left_array, [0])
+        heading_array = torch.flip(heading_array, [0])
+        for frame in range(len(loc_left_array)):
+            if prev_img_data is not None:
+                x = loc_left_array[frame][0] - prev_img_data[0]
+                y = loc_left_array[frame][1] - prev_img_data[1]
+                gps_distance = torch.sqrt(torch.pow(x, 2)+torch.pow(y,2))
+                yaw_change = heading_array[frame] - prev_img_data[2]
+                for i in range(len(locations)):
+                    x0, y0 = locations[i]
+                    x1 = x0 * torch.cos(yaw_change) + y0 * torch.sin(yaw_change) - gps_distance
+                    y1 = -x0 * torch.sin(yaw_change) + y0 * torch.cos(yaw_change)
+                    locations[i] = torch.tensor([x1,y1], dtype=torch.float32)
+            locations += [torch.tensor([0,0], dtype=torch.float32)]
+            prev_img_data = [loc_left_array[frame][0], loc_left_array[frame][1], heading_array[frame]]
+        locations = torch.stack(locations)
+        locations = torch.flip(locations, [0])
+        
+        # loc_shift_left = loc_left_array - loc_left_array[0:1, :]
+        
+        # # 旋转矩阵
+        # R = torch.tensor([[torch.cos(heading_array[0] / torch.pi * 180), -torch.sin(heading_array[0] / torch.pi * 180)],
+        #               [torch.sin(heading_array[0] / torch.pi * 180), torch.cos(heading_array[0] / torch.pi * 180)]])
+        # loc_shift_left = torch.matmul(loc_shift_left, R.T)
+            
         heading_shift_left = (heading_array - heading_array[0])
         
         sat_rot = sat_map.rotate(-heading_array[0] / np.pi * 180)
@@ -451,8 +501,8 @@ class SatGrdDatasetTest(Dataset):
         gt_shift_x = -float(gt_shift_x)  # --> right as positive, parallel to the heading direction
         gt_shift_y = -float(gt_shift_y)  # --> up as positive, vertical to the heading direction
         
-        gt_shift_xs = -loc_shift_left[:,0] / self.shift_range_pixels_lon - gt_shift_x
-        gt_shift_ys = -loc_shift_left[:,1] / self.shift_range_pixels_lat - gt_shift_y
+        gt_shift_xs = -locations[:,0] / self.shift_range_pixels_lon - gt_shift_x
+        gt_shift_ys = -locations[:,1] / self.shift_range_pixels_lat - gt_shift_y
         thetas = heading_shift_left / np.pi * 180 / max(self.rotation_range, 1e-6) + float(theta)
         
         sat_rand_shift = \
@@ -476,8 +526,8 @@ class SatGrdDatasetTest(Dataset):
             sat_map = self.satmap_transform(sat_map)
 
         # gt_corr_x, gt_corr_y = self.generate_correlation_GTXY(gt_shift_x, gt_shift_y, theta)
-
-        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), loc_shift_left.float(), heading_shift_left.float()
+                
+        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), locations.float(), heading_shift_left.float()
     
     # def generate_correlation_GTXY(self, gt_shift_x, gt_shift_y, gt_heading):
         

@@ -89,13 +89,13 @@ def gps2utm_torch(lat, lon, lat0=torch.tensor(49.015)):
     return x, y
 
 
-def gps2meters_torch(lat_s, lon_s, lat_d=torch.tensor([49.015]), lon_d=torch.tensor([8.43])):
+def gps2meters_torch(lat_s, lon_s, lat_d, lon_d):
     # inputs: torch array: [n]
     r = 6378137 # equatorial radius
     flatten = 1/298257 # flattening
     E2 = flatten * (2- flatten)
     m = r * np.pi/180  
-    lat = lat_d[0]
+    lat = lat_d
     coslat = np.cos(lat * np.pi/180)
     w2 = 1/(1-E2 *(1-coslat*coslat))
     w = np.sqrt(w2)
