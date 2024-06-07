@@ -12,13 +12,13 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "2",
+        "6",
         "--proj",
         "geo",
         "--sequence",
-        "12",
+        "4",
         "--name",
-        "test",
+        "seq4_debug",
       ]
     },
     {
@@ -44,7 +44,7 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "2",
+        "6",
         "--proj",
         "geo",
         "--test",
@@ -52,7 +52,7 @@
         "--name",
         "seq4",
         "--sequence",
-        "12"
+        "4"
       ]
     },
     {
@@ -63,7 +63,7 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "14",
+        "8s",
         "--proj",
         "geo",
         "--name",

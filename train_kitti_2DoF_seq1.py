@@ -15,7 +15,7 @@ import ssl
 
 ssl._create_default_https_context = ssl._create_unverified_context  # for downloading pretrained VGG weights
 
-from models_kitti_seq import Model
+from models_kitti_seq1 import Model
 
 import numpy as np
 import os
@@ -241,7 +241,6 @@ def train(net, lr, args, save_path, device):
         for Loop, Data in enumerate(trainloader, 0):
 
             sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left = [item.to(device) for item in Data[:-1]]
-            file_name = Data[-1]
 
             optimizer.zero_grad()
 
@@ -295,7 +294,7 @@ def parse_args():
     parser.add_argument('--proj', type=str, default='geo', help='geo, polar, nn, CrossAttn')
     parser.add_argument('--use_uncertainty', type=int, default=1, help='0 or 1')
 
-    parser.add_argument('--sequence', type=int, default=4, help='0 or 1')
+    parser.add_argument('--sequence', type=int, default=1, help='0 or 1')
     
     parser.add_argument('--name', type=str, default='test', help='save model name')
     parser.add_argument('--gpu_id', type=str, default='0', help='use gpu id')
@@ -341,7 +340,7 @@ if __name__ == '__main__':
     net.to(device)
 
     if args.test:
-        net.load_state_dict(torch.load(os.path.join(save_path, 'model_0.pth')))
+        net.load_state_dict(torch.load(os.path.join(save_path, 'model_7.pth')))
         test1(net, args, save_path, epoch=4)
         test2(net, args, save_path, epoch=4)
 

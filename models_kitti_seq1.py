@@ -12,10 +12,8 @@ from models_ford import loss_func
 from RNNs import Uncertainty
 from swin_transformer import TransOptimizerS2GP_V1, TransOptimizerG2SP_V1
 from cross_attention import CrossViewAttention
-from Transformer import TransformerFusion
 from torchvision import transforms
 from sklearn.decomposition import PCA
-import matplotlib.pyplot as plt
 
 from visualize import *
 to_pil_image = transforms.ToPILImage()
@@ -185,15 +183,6 @@ class Model(nn.Module):
         if self.args.use_uncertainty:
             self.uncertain_net = Uncertainty()
 
-        self.FuseNet1 = TransformerFusion(seq=self.args.sequence, n_embd=64, n_head=2, 
-                                             n_layers=2)
-        
-        self.FuseNet2 = TransformerFusion(seq=self.args.sequence, n_embd=128, n_head=2, 
-                                        n_layers=2)
-
-        self.FuseNet3 = TransformerFusion(seq=self.args.sequence, n_embd=256, n_head=2, 
-                                             n_layers=2)
-
         torch.autograd.set_detect_anomaly(True)
         # Running the forward pass with detection enabled will allow the backward pass to print the traceback of the forward operation that created the failing backward function.
         # Any backward computation that generate “nan” value will raise an error.
@@ -360,8 +349,8 @@ class Model(nn.Module):
         else:
             heading = ori_heading * self.args.rotation_range / 180 * np.pi
 
-        cos = torch.cos(heading).unsqueeze(-1)
-        sin = torch.sin(heading).unsqueeze(-1)
+        cos = torch.cos(-heading).unsqueeze(-1)
+        sin = torch.sin(-heading).unsqueeze(-1)
         zeros = torch.zeros_like(cos)
         ones = torch.ones_like(cos)
         R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)   # shape = [B,9]
@@ -375,8 +364,7 @@ class Model(nn.Module):
         T = torch.einsum('bsij, bsjk -> bsik', R, T)
         # P = K[R|T]
         camera_k = ori_camera_k.clone()
-        camera_k[:, :1, :] = ori_camera_k[:, :1,
-                             :] * grd_W / ori_grdW  # original size input into feature get network/ output of feature get network
+        camera_k[:, :1, :] = ori_camera_k[:, :1, :] * grd_W / ori_grdW  # original size input into feature get network/ output of feature get network
         camera_k[:, 1:2, :] = ori_camera_k[:, 1:2, :] * grd_H / ori_grdH
         P = torch.einsum('bij, bsjk -> bsik', camera_k, torch.cat([R, T], dim=-1)).float()  # shape = [B,S,3,4]
 
@@ -445,7 +433,7 @@ class Model(nn.Module):
 
         return shift_u_new, shift_v_new, heading_new
 
-    def SequenceFusion(self, grd_feature, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0):
+    def SequenceFusion(self, grd_feature, attn_pdrop=0.5, resid_pdrop=0.5, pe_pdrop=0.5):
         # input: grd_feature:[B,S,E,C,H,W]
         # output: grd_feature:[B,C,H,W]
 
@@ -533,11 +521,8 @@ class Model(nn.Module):
             #         grd_feature = self.SequenceFusion(grd_feat_proj)  #[B,C,H,W]
             #     else:
             #         grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
-            
-            if mode == 'train':
-                grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
-            else:
-                grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
+            grd_feature = grd_feat_proj[:,0,0,:,:,:]
+
             crop_H = int(A - self.args.shift_range_lat * 3 / meter_per_pixel)
             crop_W = int(A - self.args.shift_range_lon * 3 / meter_per_pixel)
             g2s_feat = TF.center_crop(grd_feature, [crop_H, crop_W])
@@ -565,7 +550,6 @@ class Model(nn.Module):
             pred_u1 = pred_u * cos + pred_v * sin
             pred_v1 = - pred_u * sin + pred_v * cos
 
-            # all_features_to_RGB(sat_feat, grd_feature, grd_feat_proj)
             # grd_features_to_RGB(grd_feature, grd_feat_proj)
             # sat_features_to_RGB(sat_feat, fuse_features=grd_feature)
             
