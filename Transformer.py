@@ -92,7 +92,7 @@ class SelfAttentionConv(nn.Module):
             nn.ReLU(),
             nn.Conv2d(n_embd, n_embd, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
         )
-        self.value =nn.Sequential(
+        self.value = nn.Sequential(
             nn.Conv2d(n_embd, n_embd, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
             nn.ReLU(),
             nn.Conv2d(n_embd, n_embd, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
@@ -113,11 +113,11 @@ class SelfAttentionConv(nn.Module):
         x0 = x.permute(1, 0, 3, 4, 2).reshape(S, B * H * W, C)
         x1 = self.pe(x0, pe_pdrop).reshape(S, B, H, W, C).permute(1, 0, 4, 2, 3).reshape(B * S, C, H, W)
 
+        x2 = x0.reshape(S, B, H, W, C).permute(1, 0, 4, 2, 3).reshape(B * S, C, H, W).reshape(B, S, self.n_head, C // self.n_head, H, W). \
+            permute(0, 4, 5, 1, 2, 3).reshape(B * H * W, S, self.n_head, C // self.n_head).transpose(1, 2)
         k = self.key(x1).reshape(B, S, self.n_head, C // self.n_head, H, W).\
             permute(0, 4, 5, 1, 2, 3).reshape(B * H * W, S, self.n_head, C // self.n_head).transpose(1, 2) # [bhw, nh, S, hs]
         q = self.query(x1).reshape(B, S, self.n_head, C // self.n_head, H, W). \
-            permute(0, 4, 5, 1, 2, 3).reshape(B * H * W, S, self.n_head, C // self.n_head).transpose(1, 2) # [bhw, nh, S, hs]
-        v = self.value(x1).reshape(B, S, self.n_head, C // self.n_head, H, W). \
             permute(0, 4, 5, 1, 2, 3).reshape(B * H * W, S, self.n_head, C // self.n_head).transpose(1, 2) # [bhw, nh, S, hs]
 
         # self-attend: (bhw, nh, T, hs) x (bhw, nh, hs, T) -> (bhw, nh, T, T)
@@ -125,24 +125,12 @@ class SelfAttentionConv(nn.Module):
         att = F.softmax(att, dim=-1)
         # att = self.attn_drop(att)
         att = nn.Dropout(attn_pdrop)(att)
-        y = att @ v  # (bhw, nh, T, T) x (bhw, nh, T, hs) -> (bhw, nh, T, hs)
+        y = att @ x2  # (bhw, nh, T, T) x (bhw, nh, T, hs) -> (bhw, nh, T, hs)
         y = y.transpose(1, 2).contiguous().reshape(B, H, W, S, C).permute(0, 3, 4, 1, 2).reshape(B * S, C, H, W)
         # re-assemble all head outputs side by side
         # output projection
         # y = self.resid_drop(self.proj(y)).reshape(B, S, C, H, W)
-        y = nn.Dropout(resid_pdrop)(self.proj(y)).reshape(B, S, C, H, W)
-
-        # if last_layer:
-        #     att_entropy = torch.sum(-att * torch.log(
-        #         torch.maximum(att, torch.tensor(1e-12, dtype=torch.float32, device=att.device))), dim=-1)
-        #     # [bhw, nh, T]
-        #     att_entropy = torch.sum(att_entropy, dim=1)  # [bhw, T]
-        #     min_entropy = torch.min(att_entropy, dim=1)[0]
-        #     mask = (att_entropy == min_entropy[:, None]).float().reshape(B, H, W, S).permute(0, 3, 1, 2).unsqueeze(dim=2)
-        #     # [B, S, 1, H, W]
-        #     # index = torch.min(torch.sum(att_entropy, dim=1), dim=-1)[1].view(B, H, W)
-        #     # each element represent the selected indexes in the sequence
-        #     y = torch.sum(y * mask, dim=1)  # [B, C, H, W]
+        y = y.reshape(B, S, C, H, W)
 
         return y, att
 

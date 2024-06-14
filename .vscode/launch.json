@@ -12,13 +12,15 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "6",
+        "8",
         "--proj",
         "geo",
         "--sequence",
-        "4",
+        "1",
         "--name",
-        "seq4_debug",
+        "test",
+        "--gpu_id",
+        "1"
       ]
     },
     {
@@ -44,15 +46,15 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "6",
+        "1",
         "--proj",
         "geo",
         "--test",
         "1",
         "--name",
-        "seq4",
+        "seq8",
         "--sequence",
-        "4"
+        "8"
       ]
     },
     {
@@ -63,7 +65,7 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "8s",
+        "8",
         "--proj",
         "geo",
         "--name",

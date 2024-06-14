@@ -163,7 +163,7 @@ class SatGrdDataset(Dataset):
         grd_left_imgs = torch.tensor([])
         loc_left_array = torch.tensor([])
         heading_array = torch.tensor([])
-        
+        real_gps = torch.tensor([])
         grd_left_depths = torch.tensor([])
         
         for i in range(len(sequence_list)):
@@ -190,6 +190,7 @@ class SatGrdDataset(Dataset):
                 
                 loc_left = torch.from_numpy(np.asarray([left_x, left_y]))
                 heading = torch.from_numpy(np.asarray(heading))
+                real_gps = torch.cat([real_gps, torch.from_numpy(np.asarray([float(content[0]), float(content[1])])).unsqueeze(0)])
                 
                 left_img_name = os.path.join(self.root, self.pro_grdimage_dir, drive_dir, left_color_camera_dir,
                                             image_no.lower())
@@ -276,7 +277,7 @@ class SatGrdDataset(Dataset):
         
         # gt_corr_x, gt_corr_y = self.generate_correlation_GTXY(gt_shift_x, gt_shift_y, theta)
 
-        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), locations.float(), heading_shift_left.float(), file_name
+        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), locations.float(), heading_shift_left.float(), real_gps.float(), file_name
 
 
     # def generate_correlation_GTXY(self, gt_shift_x, gt_shift_y, gt_heading):
@@ -409,6 +410,7 @@ class SatGrdDatasetTest(Dataset):
         thetas = torch.tensor([])
         loc_left_array = torch.tensor([])
         heading_array = torch.tensor([])
+        real_gps = torch.tensor([])
         # image_no = file_name[38:]
 
         
@@ -424,7 +426,9 @@ class SatGrdDatasetTest(Dataset):
 
                 # get heading
                 heading = float(content[5])
-
+                
+                real_gps = torch.cat([real_gps, torch.from_numpy(np.asarray([float(content[0]), float(content[1])])).unsqueeze(0)])
+                
                 # get location
                 # utm_x, utm_y = utils.gps2utm(float(content[0]), float(content[1]), lat0)  # location of the GPS device
                 utm_x, utm_y = utils.gps2utm(float(content[0]), float(content[1]))
@@ -527,7 +531,7 @@ class SatGrdDatasetTest(Dataset):
 
         # gt_corr_x, gt_corr_y = self.generate_correlation_GTXY(gt_shift_x, gt_shift_y, theta)
                 
-        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), locations.float(), heading_shift_left.float()
+        return sat_map, left_camera_k, grd_left_imgs, gt_shift_xs.float(), gt_shift_ys.float(), thetas.float(), locations.float(), heading_shift_left.float(), real_gps
     
     # def generate_correlation_GTXY(self, gt_shift_x, gt_shift_y, gt_heading):
         

@@ -16,6 +16,7 @@ from Transformer import TransformerFusion
 from torchvision import transforms
 from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
+from project_kitti import *
 
 from visualize import *
 to_pil_image = transforms.ToPILImage()
@@ -370,9 +371,9 @@ class Model(nn.Module):
         camera_height = utils.get_camera_height()
         # camera offset, shift_u:east,Z, shift_v:north,X
         height = camera_height * torch.ones_like(shift_u_meters)
-        T = torch.cat([shift_v_meters, height, -shift_u_meters], dim=-1)  # shape = [B, 3]
+        T = torch.cat([-shift_u_meters, height, -shift_v_meters], dim=-1)  # shape = [B, 3]
         T = torch.unsqueeze(T, dim=-1)  # shape = [B,S,3,1]
-        T = torch.einsum('bsij, bsjk -> bsik', R, T)
+        # T = torch.einsum('bsij, bsjk -> bsik', R, T)
         # P = K[R|T]
         camera_k = ori_camera_k.clone()
         camera_k[:, :1, :] = ori_camera_k[:, :1,
@@ -463,7 +464,7 @@ class Model(nn.Module):
         return fuse_feature  # [B,C,H,W]
 
     def corr(self, sat_map, grd_img_left, left_camera_k, gt_shift_u=None, gt_shift_v=None, gt_heading=None,
-             loc_shift_left=None, heading_shift_left=None, mode='train'):
+             loc_shift_left=None, heading_shift_left=None, real_gps=None, mode='train'):
         '''
         Args:
             sat_map: [B, C, A, A] A--> sidelength
@@ -482,13 +483,17 @@ class Model(nn.Module):
 
         B, S, C_in, ori_grdH, ori_grdW = grd_img_left.shape
 
-        shift_u = loc_shift_left[:,:,:1]
-        shift_v = loc_shift_left[:,:,1:]
+        shift_u = loc_shift_left[:,:,1:]
+        shift_v = loc_shift_left[:,:,:1]
         # heading = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
         if self.args.rotation_range == 0:
             heading = heading_shift_left
         else:
             heading = gt_heading
+        
+        # bev = get_BEV_kitti(grd_img_left[0,0].permute(1,2,0), 17.5, 0.8, 4, 1000, device=self.device) # [B,S,E,C,H,W]
+        # pro_image = to_pil_image(bev)
+        # pro_image.save(f'pro_image.png')
         
         # vis
         # test_proj, _, u, mask = self.project_grd_to_map(
@@ -525,6 +530,9 @@ class Model(nn.Module):
             grd_feat_proj, _, u, mask = self.project_grd_to_map(
                 grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
             
+            # grd_feat_proj, _, u, mask = get_BEV_kitti(
+            #     grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+            
             # SequenceFusion
             # if S == 1:
             #     grd_feature = grd_feat_proj[:,0,0,:,:,:]
@@ -534,10 +542,14 @@ class Model(nn.Module):
             #     else:
             #         grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
             
-            if mode == 'train':
-                grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
-            else:
-                grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
+            grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
+            
+            # 检查梯度
+            # print(grd_feat_proj.grad)  # 查看输入x的梯度
+            # for name, param in self.FuseNet3.named_parameters():
+            #     if param.grad is not None:
+            #         print(f"梯度 {name}: {param.grad.abs().mean()}")  # 查看每个参数的梯度平均值
+
             crop_H = int(A - self.args.shift_range_lat * 3 / meter_per_pixel)
             crop_W = int(A - self.args.shift_range_lon * 3 / meter_per_pixel)
             g2s_feat = TF.center_crop(grd_feature, [crop_H, crop_W])

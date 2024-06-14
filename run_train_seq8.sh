@@ -2,7 +2,7 @@
 
 python train_kitti_2DoF_seq.py \
   --batch_size 3 \
-  --gpu_id 6 \
+  --gpu_id 1 \
   --proj geo \
   --name seq8 \
   --sequence 8

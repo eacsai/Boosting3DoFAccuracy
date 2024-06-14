@@ -39,12 +39,12 @@ def test1(net_test, args, save_path, epoch):
 
     with torch.no_grad():
         for i, data in enumerate(dataloader, 0):
-            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left = [item.to(device) for item in data]
+            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps = [item.to(device) for item in data]
 
             if args.proj == 'CrossAttn':
                 pred_u, pred_v = net_test.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_heading=gt_heading, mode='test')
             else:
-                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='test')
+                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps, mode='test')
 
             pred_lons.append(pred_u.data.cpu().numpy())
             pred_lats.append(pred_v.data.cpu().numpy())
@@ -225,11 +225,33 @@ def train(net, lr, args, save_path, device):
 
     for epoch in range(args.resume, args.epochs):
         net.train()
+        # pretrained_path = '/home/wangqw/video_program/Boosting3DoFAccuracy/ModelsKitti/2DoF/seq1/lat20.0m_lon20.0m_geo_Uncertainty/model_4.pth'
+        # pretrained_dict = torch.load(pretrained_path)
+        
+        # model_dict = net.state_dict()
+        
+        # # 更新模型的 state_dict
+        # model_dict.update(pretrained_dict)
+        # net.load_state_dict(model_dict)
+        
+        # # 冻结前两部分的权重
+        # for param in net.SatFeatureNet.parameters():
+        #     param.requires_grad = False
 
+        # for param in net.GrdFeatureNet.parameters():
+        #     param.requires_grad = False
+        
+        # for param in net.TransRefine.parameters():
+        #     param.requires_grad = False
+        
+        # for param in net.uncertain_net.parameters():
+        #     param.requires_grad = False
+        
         base_lr = lr
         base_lr = base_lr * ((1.0 - float(epoch) / 100.0) ** (1.0))
 
         optimizer = optim.Adam(net.parameters(), lr=base_lr)
+        # optimizer = optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), lr=base_lr)
         optimizer.zero_grad()
 
         trainloader = load_train_data(mini_batch, args.shift_range_lat, args.shift_range_lon, args.rotation_range, sequence=args.sequence)
@@ -240,7 +262,7 @@ def train(net, lr, args, save_path, device):
 
         for Loop, Data in enumerate(trainloader, 0):
 
-            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left = [item.to(device) for item in Data[:-1]]
+            sat_map, left_camera_k, grd_left_imgs, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps = [item.to(device) for item in Data[:-1]]
             file_name = Data[-1]
 
             optimizer.zero_grad()
@@ -248,7 +270,7 @@ def train(net, lr, args, save_path, device):
             if args.proj == 'CrossAttn':
                 loss = net.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='train')
             else:
-                loss = net.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='train')
+                loss = net.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps, mode='train')
 
             loss.backward()
 
@@ -341,7 +363,7 @@ if __name__ == '__main__':
     net.to(device)
 
     if args.test:
-        net.load_state_dict(torch.load(os.path.join(save_path, 'model_0.pth')))
+        net.load_state_dict(torch.load(os.path.join(save_path, 'model_4.pth')))
         test1(net, args, save_path, epoch=4)
         test2(net, args, save_path, epoch=4)
 
