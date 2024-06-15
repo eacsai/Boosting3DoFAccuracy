@@ -20,7 +20,9 @@
         "--name",
         "test",
         "--gpu_id",
-        "1"
+        "1",
+        "--project",
+        "original"
       ]
     },
     {
@@ -46,15 +48,17 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "1",
+        "6",
         "--proj",
         "geo",
         "--test",
         "1",
         "--name",
-        "seq8",
+        "seq4_original",
         "--sequence",
-        "8"
+        "4",
+        "--project",
+        "original"
       ]
     },
     {

@@ -44,7 +44,7 @@ def test1(net_test, args, save_path, epoch):
             if args.proj == 'CrossAttn':
                 pred_u, pred_v = net_test.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_heading=gt_heading, mode='test')
             else:
-                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps, mode='test')
+                pred_u, pred_v = net_test.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps, project = args.project, mode='test')
 
             pred_lons.append(pred_u.data.cpu().numpy())
             pred_lats.append(pred_v.data.cpu().numpy())
@@ -270,7 +270,7 @@ def train(net, lr, args, save_path, device):
             if args.proj == 'CrossAttn':
                 loss = net.CVattn_corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, mode='train')
             else:
-                loss = net.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps, mode='train')
+                loss = net.corr(sat_map, grd_left_imgs, left_camera_k, gt_shift_u, gt_shift_v, gt_heading, loc_shift_left, heading_shift_left, real_gps, project = args.project, mode='train')
 
             loss.backward()
 
@@ -321,6 +321,7 @@ def parse_args():
     
     parser.add_argument('--name', type=str, default='test', help='save model name')
     parser.add_argument('--gpu_id', type=str, default='0', help='use gpu id')
+    parser.add_argument('--project', type=str, default='bev', help='use gpu id')
     
     args = parser.parse_args()
 

@@ -46,7 +46,7 @@ def reshape_normalize(x):
 def all_features_to_RGB(sat_features, fuse_features,grd_features):
     sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
     fuse_feat = fuse_features[:1,:,:,:].data.cpu().numpy()
-    grd_feat = grd_features[0,:,0,:,:,:].data.cpu().numpy()
+    grd_feat = grd_features[0,:,:,:,:].data.cpu().numpy()
     # 1. 重塑特征图形状为 [256, 64*64]
     B, C, H, W = fuse_feat.shape
     S = grd_features.shape[1]
@@ -371,9 +371,9 @@ class Model(nn.Module):
         camera_height = utils.get_camera_height()
         # camera offset, shift_u:east,Z, shift_v:north,X
         height = camera_height * torch.ones_like(shift_u_meters)
-        T = torch.cat([-shift_u_meters, height, -shift_v_meters], dim=-1)  # shape = [B, 3]
+        T = torch.cat([shift_u_meters, height, -shift_v_meters], dim=-1)  # shape = [B, 3]
         T = torch.unsqueeze(T, dim=-1)  # shape = [B,S,3,1]
-        # T = torch.einsum('bsij, bsjk -> bsik', R, T)
+        T = torch.einsum('bsij, bsjk -> bsik', R, T)
         # P = K[R|T]
         camera_k = ori_camera_k.clone()
         camera_k[:, :1, :] = ori_camera_k[:, :1,
@@ -422,7 +422,7 @@ class Model(nn.Module):
             grd_c_trans = None
 
         return grd_f_trans, grd_c_trans, uv[..., 0], mask
-
+    
     def Trans_update(self, shift_u, shift_v, heading, grd_feat_proj, sat_feat):
         B = shift_u.shape[0]
         grd_feat_norm = torch.norm(grd_feat_proj.reshape(B, -1), p=2, dim=-1)
@@ -450,8 +450,7 @@ class Model(nn.Module):
         # input: grd_feature:[B,S,E,C,H,W]
         # output: grd_feature:[B,C,H,W]
 
-        B, S, E, C, H, W = grd_feature.size()
-        grd_feature = grd_feature[:, :, 0, :, :, :]
+        B, S, C, H, W = grd_feature.size()
         if C == 64:
             x, att = self.FuseNet1(grd_feature, attn_pdrop, resid_pdrop, pe_pdrop)
         elif C == 128:
@@ -464,7 +463,7 @@ class Model(nn.Module):
         return fuse_feature  # [B,C,H,W]
 
     def corr(self, sat_map, grd_img_left, left_camera_k, gt_shift_u=None, gt_shift_v=None, gt_heading=None,
-             loc_shift_left=None, heading_shift_left=None, real_gps=None, mode='train'):
+             loc_shift_left=None, heading_shift_left=None, real_gps=None, project = 'bev',mode='train'):
         '''
         Args:
             sat_map: [B, C, A, A] A--> sidelength
@@ -491,21 +490,26 @@ class Model(nn.Module):
         else:
             heading = gt_heading
         
-        # bev = get_BEV_kitti(grd_img_left[0,0].permute(1,2,0), 17.5, 0.8, 4, 1000, device=self.device) # [B,S,E,C,H,W]
-        # pro_image = to_pil_image(bev)
-        # pro_image.save(f'pro_image.png')
-        
         # vis
-        # test_proj, _, u, mask = self.project_grd_to_map(
-        #         grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+        # meter_per_pixel = utils.get_meter_per_pixel()
+        # meter_per_pixel *= utils.get_process_satmap_sidelength() / 512
+        # bev = get_BEV_kitti(grd_img_left, 512 , Tx = shift_v / meter_per_pixel, Ty = -shift_u / meter_per_pixel, heading=heading) # [B,S,E,C,H,W]
         
-        # show_sat = sat_map[0,:,:,:]    
-        # sat_image = to_pil_image(show_sat)
-        # sat_image.save('sat_image.png')
-        # for i in range(test_proj.shape[1]):
-        #     show_project = test_proj[0,i,0,:,:,:]
+        # for i in range(bev.shape[1]):
+        #     show_project = bev[0,i,:,:,:]
         #     pro_image = to_pil_image(show_project)
-        #     pro_image.save(f'pro_image{i}.png')
+        #     pro_image.save(f'bev_image{i}.png')
+            
+        test_proj, _, u, mask = self.project_grd_to_map(
+                grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+        
+        show_sat = sat_map[0,:,:,:]    
+        sat_image = to_pil_image(show_sat)
+        sat_image.save('sat_image.png')
+        for i in range(test_proj.shape[1]):
+            show_project = test_proj[0,i,0,:,:,:]
+            pro_image = to_pil_image(show_project)
+            pro_image.save(f'pro_image{i}.png')
         
         sat_feat_list, sat_conf_list = self.SatFeatureNet(sat_map)
 
@@ -527,9 +531,12 @@ class Model(nn.Module):
             grd_feat = grd_feat_list[level]
 
             A = sat_feat.shape[-1]
-            grd_feat_proj, _, u, mask = self.project_grd_to_map(
-                grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
-            
+            if project == 'bev':
+                grd_feat_proj = get_BEV_kitti(grd_feat, A , Tx = shift_v / meter_per_pixel, Ty = -shift_u / meter_per_pixel, heading=heading)
+            else:
+                grd_feat_proj, _, u, mask = self.project_grd_to_map(
+                    grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+                grd_feat_proj = grd_feat_proj[:, :, 0, :, :, :]
             # grd_feat_proj, _, u, mask = get_BEV_kitti(
             #     grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
             
