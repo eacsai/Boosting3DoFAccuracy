@@ -15,6 +15,7 @@ from cross_attention import CrossViewAttention
 from Transformer import TransformerFusion
 from torchvision import transforms
 from sklearn.decomposition import PCA
+import cv2
 import matplotlib.pyplot as plt
 from project_kitti import *
 
@@ -361,8 +362,8 @@ class Model(nn.Module):
         else:
             heading = ori_heading * self.args.rotation_range / 180 * np.pi
 
-        cos = torch.cos(heading).unsqueeze(-1)
-        sin = torch.sin(heading).unsqueeze(-1)
+        cos = torch.cos(-heading).unsqueeze(-1)
+        sin = torch.sin(-heading).unsqueeze(-1)
         zeros = torch.zeros_like(cos)
         ones = torch.ones_like(cos)
         R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)   # shape = [B,9]
@@ -500,16 +501,22 @@ class Model(nn.Module):
         #     pro_image = to_pil_image(show_project)
         #     pro_image.save(f'bev_image{i}.png')
             
-        test_proj, _, u, mask = self.project_grd_to_map(
-                grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+        # test_proj, _, u, mask = self.project_grd_to_map(
+        #         grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
         
-        show_sat = sat_map[0,:,:,:]    
-        sat_image = to_pil_image(show_sat)
-        sat_image.save('sat_image.png')
-        for i in range(test_proj.shape[1]):
-            show_project = test_proj[0,i,0,:,:,:]
-            pro_image = to_pil_image(show_project)
-            pro_image.save(f'pro_image{i}.png')
+        # show_sat = sat_map[0,:,:,:]    
+        # sat_image = to_pil_image(show_sat)
+        # sat_image.save('sat_image.png')
+        # for i in range(test_proj.shape[1]):
+        #     show_project = test_proj[0,i,0,:,:,:]
+        #     # 将张量转换为NumPy数组，以便OpenCV处理
+        #     image_np = show_project.permute(1, 2, 0).cpu().numpy() * 255
+        #     image_np = image_np.astype(np.uint8).copy()
+            
+        #     # 将RGB通道转换为BGR通道
+        #     image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        #     cv2.circle(image_np, (int(shift_v[0,i,0] / meter_per_pixel + 256), int(-shift_u[0,i,0] / meter_per_pixel + 256)), radius=3, color=(0, 0, 255), thickness=-1)  # 红色圆点
+        #     cv2.imwrite(f'pro_image{i}.png', image_np)
         
         sat_feat_list, sat_conf_list = self.SatFeatureNet(sat_map)
 

@@ -69,8 +69,8 @@ def get_BEV_kitti(front_imgs, out_size, heading, Tx, Ty):
     ], dim=-2)
     
     T_translate_back = torch.stack([
-        torch.cat([torch.ones_like(Tx), torch.zeros_like(Tx), (out_size * sin_gamma / 2) + Tx], dim=-1),
-        torch.cat([torch.zeros_like(Tx), torch.ones_like(Tx), (-out_size * cos_gamma / 2) + Ty], dim=-1),
+        torch.cat([torch.ones_like(Tx), torch.zeros_like(Tx), (uc * sin_gamma) + Tx], dim=-1),
+        torch.cat([torch.zeros_like(Tx), torch.ones_like(Tx), (-vc * cos_gamma) + Ty], dim=-1),
         torch.tensor([0, 0, 1], dtype=torch.float32, device=device).expand(B, S, -1)
     ], dim=-2)
     

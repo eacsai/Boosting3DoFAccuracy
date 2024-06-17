@@ -214,13 +214,13 @@ class SatGrdDataset(Dataset):
         locations = []
         prev_img_data = None
         loc_left_array = torch.flip(loc_left_array, [0])
-        heading_array = torch.flip(heading_array, [0])
+        heading_array_flip = torch.flip(heading_array, [0])
         for frame in range(len(loc_left_array)):
             if prev_img_data is not None:
                 x = loc_left_array[frame][0] - prev_img_data[0]
                 y = loc_left_array[frame][1] - prev_img_data[1]
                 gps_distance = torch.sqrt(torch.pow(x, 2)+torch.pow(y,2))
-                yaw_change = heading_array[frame] - prev_img_data[2]
+                yaw_change = heading_array_flip[frame] - prev_img_data[2]
                 for i in range(len(locations)):
                     x0, y0 = locations[i]
                     x1 = x0 * torch.cos(yaw_change) + y0 * torch.sin(yaw_change) - gps_distance
@@ -464,21 +464,21 @@ class SatGrdDatasetTest(Dataset):
         
         locations = []
         prev_img_data = None
-        loc_left_array = torch.flip(loc_left_array, [0])
-        heading_array = torch.flip(heading_array, [0])
-        for frame in range(len(loc_left_array)):
+        loc_left_array_flip = torch.flip(loc_left_array, [0])
+        heading_array_flip = torch.flip(heading_array, [0])
+        for frame in range(len(loc_left_array_flip)):
             if prev_img_data is not None:
-                x = loc_left_array[frame][0] - prev_img_data[0]
-                y = loc_left_array[frame][1] - prev_img_data[1]
+                x = loc_left_array_flip[frame][0] - prev_img_data[0]
+                y = loc_left_array_flip[frame][1] - prev_img_data[1]
                 gps_distance = torch.sqrt(torch.pow(x, 2)+torch.pow(y,2))
-                yaw_change = heading_array[frame] - prev_img_data[2]
+                yaw_change = heading_array_flip[frame] - prev_img_data[2]
                 for i in range(len(locations)):
                     x0, y0 = locations[i]
                     x1 = x0 * torch.cos(yaw_change) + y0 * torch.sin(yaw_change) - gps_distance
                     y1 = -x0 * torch.sin(yaw_change) + y0 * torch.cos(yaw_change)
                     locations[i] = torch.tensor([x1,y1], dtype=torch.float32)
             locations += [torch.tensor([0,0], dtype=torch.float32)]
-            prev_img_data = [loc_left_array[frame][0], loc_left_array[frame][1], heading_array[frame]]
+            prev_img_data = [loc_left_array_flip[frame][0], loc_left_array_flip[frame][1], heading_array_flip[frame]]
         locations = torch.stack(locations)
         locations = torch.flip(locations, [0])
         

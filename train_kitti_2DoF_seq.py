@@ -364,7 +364,7 @@ if __name__ == '__main__':
     net.to(device)
 
     if args.test:
-        net.load_state_dict(torch.load(os.path.join(save_path, 'model_4.pth')))
+        net.load_state_dict(torch.load(os.path.join(save_path, 'model_1.pth')))
         test1(net, args, save_path, epoch=4)
         test2(net, args, save_path, epoch=4)
 
