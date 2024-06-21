@@ -32,7 +32,7 @@ def get_BEV_kitti(front_imgs, out_size, heading, Tx, Ty):
     frame[:, :, :, :Hp // 2, :] = 0
     
     y = (torch.ones((2, 2)).to(device).T  *(torch.arange(0,Ho, step=Ho-1)).to(device)).T
-    x = torch.ones((2, 2)).to(device)  *torch.arange(0, Wo, step=Wo-1).to(device)
+    x = torch.ones((2, 2)).to(device) * torch.arange(0, Wo, step=Wo-1).to(device)
     l0 = torch.ones((2, 2)).to(device)*Ho - y
     l1 = torch.ones((2, 2)).to(device) * f_+ l0
     

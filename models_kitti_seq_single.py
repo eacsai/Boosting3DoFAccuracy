@@ -12,8 +12,12 @@ from models_ford import loss_func
 from RNNs import Uncertainty
 from swin_transformer import TransOptimizerS2GP_V1, TransOptimizerG2SP_V1
 from cross_attention import CrossViewAttention
+from Transformer import TransformerFusion
 from torchvision import transforms
 from sklearn.decomposition import PCA
+import cv2
+import matplotlib.pyplot as plt
+from project_kitti import *
 
 from visualize import *
 to_pil_image = transforms.ToPILImage()
@@ -43,7 +47,7 @@ def reshape_normalize(x):
 def all_features_to_RGB(sat_features, fuse_features,grd_features):
     sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
     fuse_feat = fuse_features[:1,:,:,:].data.cpu().numpy()
-    grd_feat = grd_features[0,:,0,:,:,:].data.cpu().numpy()
+    grd_feat = grd_features[0,:,:,:,:].data.cpu().numpy()
     # 1. 重塑特征图形状为 [256, 64*64]
     B, C, H, W = fuse_feat.shape
     S = grd_features.shape[1]
@@ -154,6 +158,8 @@ class Model(nn.Module):
             self.Dec2 = Decoder2()
             self.CVattn = CrossViewAttention(blocks=2, dim=256, heads=4, dim_head=16, qkv_bias=False)
         else:
+            self.GrdEnc = Encoder()
+            self.GrdDec = Decoder()
             self.GrdFeatureNet = VGGUnet(self.level)
 
         self.meters_per_pixel = []
@@ -182,6 +188,15 @@ class Model(nn.Module):
 
         if self.args.use_uncertainty:
             self.uncertain_net = Uncertainty()
+
+        self.FuseNet1 = TransformerFusion(seq=self.args.sequence, n_embd=64, n_head=2, 
+                                             n_layers=2)
+        
+        self.FuseNet2 = TransformerFusion(seq=self.args.sequence, n_embd=128, n_head=2, 
+                                        n_layers=2)
+
+        self.FuseNet3 = TransformerFusion(seq=self.args.sequence, n_embd=256, n_head=2, 
+                                             n_layers=2)
 
         torch.autograd.set_detect_anomaly(True)
         # Running the forward pass with detection enabled will allow the backward pass to print the traceback of the forward operation that created the failing backward function.
@@ -359,12 +374,13 @@ class Model(nn.Module):
         camera_height = utils.get_camera_height()
         # camera offset, shift_u:east,Z, shift_v:north,X
         height = camera_height * torch.ones_like(shift_u_meters)
-        T = torch.cat([shift_v_meters, height, -shift_u_meters], dim=-1)  # shape = [B, 3]
+        T = torch.cat([shift_u_meters, height, -shift_v_meters], dim=-1)  # shape = [B, 3]
         T = torch.unsqueeze(T, dim=-1)  # shape = [B,S,3,1]
         T = torch.einsum('bsij, bsjk -> bsik', R, T)
         # P = K[R|T]
         camera_k = ori_camera_k.clone()
-        camera_k[:, :1, :] = ori_camera_k[:, :1, :] * grd_W / ori_grdW  # original size input into feature get network/ output of feature get network
+        camera_k[:, :1, :] = ori_camera_k[:, :1,
+                             :] * grd_W / ori_grdW  # original size input into feature get network/ output of feature get network
         camera_k[:, 1:2, :] = ori_camera_k[:, 1:2, :] * grd_H / ori_grdH
         P = torch.einsum('bij, bsjk -> bsik', camera_k, torch.cat([R, T], dim=-1)).float()  # shape = [B,S,3,4]
 
@@ -409,7 +425,7 @@ class Model(nn.Module):
             grd_c_trans = None
 
         return grd_f_trans, grd_c_trans, uv[..., 0], mask
-
+    
     def Trans_update(self, shift_u, shift_v, heading, grd_feat_proj, sat_feat):
         B = shift_u.shape[0]
         grd_feat_norm = torch.norm(grd_feat_proj.reshape(B, -1), p=2, dim=-1)
@@ -433,12 +449,11 @@ class Model(nn.Module):
 
         return shift_u_new, shift_v_new, heading_new
 
-    def SequenceFusion(self, grd_feature, attn_pdrop=0.5, resid_pdrop=0.5, pe_pdrop=0.5):
+    def SequenceFusion(self, grd_feature, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0):
         # input: grd_feature:[B,S,E,C,H,W]
         # output: grd_feature:[B,C,H,W]
 
-        B, S, E, C, H, W = grd_feature.size()
-        grd_feature = grd_feature[:, :, 0, :, :, :]
+        B, S, C, H, W = grd_feature.size()
         if C == 64:
             x, att = self.FuseNet1(grd_feature, attn_pdrop, resid_pdrop, pe_pdrop)
         elif C == 128:
@@ -451,7 +466,7 @@ class Model(nn.Module):
         return fuse_feature  # [B,C,H,W]
 
     def corr(self, sat_map, grd_img_left, left_camera_k, gt_shift_u=None, gt_shift_v=None, gt_heading=None,
-             loc_shift_left=None, heading_shift_left=None, mode='train'):
+             loc_shift_left=None, heading_shift_left=None, real_gps=None, project = 'bev',mode='train'):
         '''
         Args:
             sat_map: [B, C, A, A] A--> sidelength
@@ -470,15 +485,25 @@ class Model(nn.Module):
 
         B, S, C_in, ori_grdH, ori_grdW = grd_img_left.shape
 
-        shift_u = loc_shift_left[:,:,:1]
-        shift_v = loc_shift_left[:,:,1:]
+        shift_u = loc_shift_left[:,:,1:]
+        shift_v = loc_shift_left[:,:,:1]
         # heading = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
         if self.args.rotation_range == 0:
             heading = heading_shift_left
         else:
             heading = gt_heading
         
-        # vis
+        # bev vis
+        # meter_per_pixel = utils.get_meter_per_pixel()
+        # meter_per_pixel *= utils.get_process_satmap_sidelength() / 512
+        # bev = get_BEV_kitti(grd_img_left, 512 , Tx = shift_v / meter_per_pixel, Ty = -shift_u / meter_per_pixel, heading=heading) # [B,S,E,C,H,W]
+        
+        # for i in range(bev.shape[1]):
+        #     show_project = bev[0,i,:,:,:]
+        #     pro_image = to_pil_image(show_project)
+        #     pro_image.save(f'bev_image{i}.png')
+
+        # original vis    
         # test_proj, _, u, mask = self.project_grd_to_map(
         #         grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
         
@@ -487,41 +512,40 @@ class Model(nn.Module):
         # sat_image.save('sat_image.png')
         # for i in range(test_proj.shape[1]):
         #     show_project = test_proj[0,i,0,:,:,:]
-        #     pro_image = to_pil_image(show_project)
-        #     pro_image.save(f'pro_image{i}.png')
+        #     # 将张量转换为NumPy数组，以便OpenCV处理
+        #     image_np = show_project.permute(1, 2, 0).cpu().numpy() * 255
+        #     image_np = image_np.astype(np.uint8).copy()
+            
+        #     # 将RGB通道转换为BGR通道
+        #     image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        #     cv2.circle(image_np, (int(shift_v[0,i,0] / meter_per_pixel + 256), int(-shift_u[0,i,0] / meter_per_pixel + 256)), radius=3, color=(0, 0, 255), thickness=-1)  # 红色圆点
+        #     cv2.imwrite(f'pro_image{i}.png', image_np)
         
         sat_feat_list, sat_conf_list = self.SatFeatureNet(sat_map)
 
-        grd_feat_list, grd_conf_list = self.GrdFeatureNet(grd_img_left.view(-1, C_in, ori_grdH, ori_grdW))
-        
-        grd_feat_list_res = []
-        for grd_feat in grd_feat_list:
-            assert torch.max(grd_feat) - torch.min(grd_feat) >= 1e-11, 'grd_feature all the same!!!'
-            _, C, H_g, W_g = grd_feat.size()
-            grd_feat_list_res.append(grd_feat.view(B, S, C, H_g, W_g))
-        
-        grd_feat_list = grd_feat_list_res
-        corr_maps = []
+        grd8, grd4, grd2 = self.GrdEnc(grd_img_left.view(-1, C_in, ori_grdH, ori_grdW))
+        # [H/8, W/8] [H/4, W/4] [H/2, W/2]
+        grd_feat_list = self.GrdDec(grd8, grd4, grd2)
 
+        corr_maps = []
         for level in range(len(sat_feat_list)):
+            if level < 2 :
+                continue
             meter_per_pixel = self.meters_per_pixel[level]
 
             sat_feat = sat_feat_list[level]
             grd_feat = grd_feat_list[level]
-
+            _, C, H_g, W_g = grd_feat.size()
+            grd_feat = grd_feat.view(B, S, C, H_g, W_g)
             A = sat_feat.shape[-1]
-            grd_feat_proj, _, u, mask = self.project_grd_to_map(
-                grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+            if project == 'bev':
+                grd_feat_proj = get_BEV_kitti(grd_feat, A , Tx = shift_v / meter_per_pixel, Ty = -shift_u / meter_per_pixel, heading=heading)
+            else:
+                grd_feat_proj, _, u, mask = self.project_grd_to_map(
+                    grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
+                grd_feat_proj = grd_feat_proj[:, :, 0, :, :, :]
             
-            # SequenceFusion
-            # if S == 1:
-            #     grd_feature = grd_feat_proj[:,0,0,:,:,:]
-            # else:
-            #     if mode == 'train':
-            #         grd_feature = self.SequenceFusion(grd_feat_proj)  #[B,C,H,W]
-            #     else:
-            #         grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
-            grd_feature = grd_feat_proj[:,0,0,:,:,:]
+            grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
 
             crop_H = int(A - self.args.shift_range_lat * 3 / meter_per_pixel)
             crop_W = int(A - self.args.shift_range_lon * 3 / meter_per_pixel)
@@ -549,11 +573,8 @@ class Model(nn.Module):
 
             pred_u1 = pred_u * cos + pred_v * sin
             pred_v1 = - pred_u * sin + pred_v * cos
-
-            # grd_features_to_RGB(grd_feature, grd_feat_proj)
-            # sat_features_to_RGB(sat_feat, fuse_features=grd_feature)
-            
-            
+        
+        # sat_features_to_RGB(sat_feat, grd_feature)
         if mode == 'train':
             return self.triplet_loss(corr_maps, gt_shift_u, gt_shift_v, gt_heading)
         else:
@@ -570,10 +591,11 @@ class Model(nn.Module):
         gt_delta_y_rot = gt_delta_x * sin + gt_delta_y * cos
 
         losses = []
-        for level in range(len(corr_maps)):
+        for _ in range(len(corr_maps)):
+            level = 2
             meter_per_pixel = self.meters_per_pixel[level]
 
-            corr = corr_maps[level]
+            corr = corr_maps[0]
             B, corr_H, corr_W = corr.shape
 
             w = torch.round(corr_W / 2 - 0.5 + gt_delta_x_rot / meter_per_pixel)

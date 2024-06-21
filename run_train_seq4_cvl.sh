@@ -1,9 +1,9 @@
 #!/bin/bash
 
-python train_kitti_2DoF_seq.py \
-  --batch_size 6 \
+python train_kitti_2DoF_seq1.py \
+  --batch_size 32 \
   --gpu_id 0 \
   --proj geo \
-  --name seq4_resize \
+  --name seq4_cvl \
   --project 'original' \
   --sequence 4

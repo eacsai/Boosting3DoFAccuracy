@@ -3,3 +3,5 @@
 *.txt
 *.mat
 *.png
+*.zip
+dinov2-base/
