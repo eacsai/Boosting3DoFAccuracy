@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 import torch
 import pandas as pd
-import utils
+import boost_utils
 import torchvision.transforms.functional as TF
 from torchvision import transforms
 import torch.nn.functional as F
@@ -535,7 +535,7 @@ def load_val_data(batch_size, rotation_range=0, ori_sat_res=800):
 
 def load_test_data(batch_size, rotation_range=0, testNum=0, ori_sat_res=800):
     print("loading test dataset..............")
-    SatMap_process_sidelength = utils.get_process_satmap_sidelength()
+    SatMap_process_sidelength = boost_utils.get_process_satmap_sidelength()
 
     satmap_transform = transforms.Compose([
         transforms.Resize(size=[SatMap_process_sidelength, SatMap_process_sidelength]),

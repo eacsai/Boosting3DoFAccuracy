@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torchvision import transforms
 import math
-import utils
+import boost_utils
 
 class SelfAttention(nn.Module):
     def __init__(self, n_embd, n_head, attn_pdrop, resid_pdrop):

@@ -21,7 +21,7 @@ import numpy as np
 import os
 import argparse
 
-from utils import gps2distance
+from boost_utils import gps2distance
 
 
 ########################### ranking test ############################

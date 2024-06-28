@@ -3,8 +3,8 @@
 
 import os
 
-# os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 import torch
 import torch.optim as optim
@@ -15,13 +15,13 @@ import ssl
 
 ssl._create_default_https_context = ssl._create_unverified_context  # for downloading pretrained VGG weights
 
-from models_kitti import Model
+from models_kitti_dino_mutil import Model
 
 import numpy as np
 import os
 import argparse
 
-from utils import gps2distance
+from boost_utils import gps2distance
 
 
 ########################### ranking test ############################
@@ -336,7 +336,7 @@ if __name__ == '__main__':
     net.to(device)
 
     if args.test:
-        net.load_state_dict(torch.load(os.path.join(save_path, 'model_4.pth')))
+        net.load_state_dict(torch.load(os.path.join(save_path, 'model_1.pth')))
         test1(net, args, save_path, epoch=4)
         test2(net, args, save_path, epoch=4)
 

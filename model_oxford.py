@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 from torchvision import transforms
-import utils
+import boost_utils
 import torchvision.transforms.functional as TF
 
 from VGG import VGGUnet, VGGUnet_G2S, Encoder, Decoder, Decoder2, Decoder4, VGGUnetTwoDec
@@ -14,7 +14,7 @@ from swin_transformer import TransOptimizerG2SP_V1
 from swin_transformer_cross import TransOptimizerG2SP, TransOptimizerG2SPV2
 from cross_attention import CrossViewAttention
 
-EPS = utils.EPS
+EPS = boost_utils.EPS
 
 
 class ModelOxford(nn.Module):
@@ -104,7 +104,7 @@ class ModelOxford(nn.Module):
         R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)
         R = R.view(B, 3, 3)  # shape = [B,3,3]
         R_inv = torch.inverse(R)
-        camera_height = utils.get_camera_height()
+        camera_height = boost_utils.get_camera_height()
         height = camera_height * torch.ones_like(shift_u_meters)
         T = torch.cat([-shift_u_meters, height, shift_v_meters, ], dim=-1)  # shape = [B, 3]
         # T = torch.unsqueeze(T, dim=-1)  # shape = [B,3,1]

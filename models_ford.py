@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 from torchvision import transforms
-import utils
+import boost_utils
 import os
 import torchvision.transforms.functional as TF
 
@@ -18,7 +18,7 @@ from swin_transformer import TransOptimizerS2GP_V1, TransOptimizerG2SP_V1
 from swin_transformer_cross import TransOptimizerG2SP, TransOptimizerG2SPV2
 from cross_attention import CrossViewAttention
 
-EPS = utils.EPS
+EPS = boost_utils.EPS
 
 
 

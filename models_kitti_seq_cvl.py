@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import torch
-import utils
+import boost_utils
 import torchvision.transforms.functional as TF
 
 from VGG import VGGUnet, Encoder, Decoder, Decoder2, Decoder4, VGG16
@@ -22,7 +22,7 @@ from project_kitti import *
 from visualize import *
 to_pil_image = transforms.ToPILImage()
 
-EPS = utils.EPS
+EPS = boost_utils.EPS
 
 def normalize(x):
     denominator = np.linalg.norm(x, axis=-1, keepdims=True)
@@ -162,7 +162,7 @@ class Model(nn.Module):
         self.SatDownch = nn.Sequential(Sat_Downch_Conv1, nn.ReLU(), Sat_Downch_Conv2)
         self.GrdDownch = nn.Sequential(Grd_Downch_Conv1, nn.ReLU(), Grd_Downch_Conv2)
 
-        self.meters_per_pixel = utils.get_meter_per_pixel()
+        self.meters_per_pixel = boost_utils.get_meter_per_pixel()
 
         if self.args.Optimizer == 'TransV1G2SP':
             self.TransRefine = TransOptimizerG2SP_V1()
@@ -199,7 +199,7 @@ class Model(nn.Module):
                                       [0.0000, 0.0000, 1.0000]]],
                                     dtype=torch.float32, requires_grad=True)  # [1, 3, 3]
 
-        camera_height = utils.get_camera_height()
+        camera_height = boost_utils.get_camera_height()
 
         camera_k = ori_camera_k.clone()
         camera_k[:, :1, :] = ori_camera_k[:, :1,
@@ -212,8 +212,8 @@ class Model(nn.Module):
         uv1 = torch.stack([u, v, torch.ones_like(u)], dim=-1).unsqueeze(dim=0)  # [1, grd_H, grd_W, 3]
         xyz_w = torch.sum(camera_k_inv[:, None, None, :, :] * uv1[:, :, :, None, :], dim=-1)  # [1, grd_H, grd_W, 3]
 
-        w = camera_height / torch.where(torch.abs(xyz_w[..., 1:2]) > utils.EPS, xyz_w[..., 1:2],
-                                        utils.EPS * torch.ones_like(xyz_w[..., 1:2]))  # [BN, grd_H, grd_W, 1]
+        w = camera_height / torch.where(torch.abs(xyz_w[..., 1:2]) > boost_utils.EPS, xyz_w[..., 1:2],
+                                        boost_utils.EPS * torch.ones_like(xyz_w[..., 1:2]))  # [BN, grd_H, grd_W, 1]
         xyz_grd = xyz_w * w  # [1, grd_H, grd_W, 3] under the grd camera coordinates
 
         mask = (xyz_grd[..., -1] > 0).float()  # # [1, grd_H, grd_W]
@@ -250,7 +250,7 @@ class Model(nn.Module):
         R = R.view(B, 3, 3)  # shape = [B, N, 3, 3]
         # this R is the inverse of the R in G2SP
 
-        camera_height = utils.get_camera_height()
+        camera_height = boost_utils.get_camera_height()
         # camera offset, shift[0]:east,Z, shift[1]:north,X
         height = camera_height * torch.ones_like(shift_u[:, :1])
         T0 = torch.cat([shift_v, height, -shift_u], dim=-1)  # shape = [B, 3]
@@ -269,8 +269,8 @@ class Model(nn.Module):
         zx = torch.sum(R_sat[None, None, None, :, :] * xyz[:, :, :, None, :], dim=-1)
         # [B, grd_H, grd_W, 2]
 
-        meter_per_pixel = utils.get_meter_per_pixel()
-        meter_per_pixel *= utils.get_process_satmap_sidelength() / satmap_sidelength
+        meter_per_pixel = boost_utils.get_meter_per_pixel()
+        meter_per_pixel *= boost_utils.get_process_satmap_sidelength() / satmap_sidelength
         sat_uv = zx / meter_per_pixel + satmap_sidelength / 2  # [B, grd_H, grd_W, 2] sat map uv
 
         return sat_uv, mask
@@ -326,8 +326,8 @@ class Model(nn.Module):
             [u0, v0]).to(self.device)  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
 
         # affine matrix: scale*R
-        meter_per_pixel = utils.get_meter_per_pixel()
-        meter_per_pixel *= utils.get_process_satmap_sidelength() / satmap_sidelength
+        meter_per_pixel = boost_utils.get_meter_per_pixel()
+        meter_per_pixel *= boost_utils.get_process_satmap_sidelength() / satmap_sidelength
         R = torch.tensor([[0, 1], [1, 0]]).float().to(self.device)  # to(self.device) # u_center->z, v_center->x
         Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
 
@@ -361,7 +361,7 @@ class Model(nn.Module):
         R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)   # shape = [B,9]
         R = R.view(B, S, 3, 3)  # shape = [B,S,3,3]
 
-        camera_height = utils.get_camera_height()
+        camera_height = boost_utils.get_camera_height()
         # camera offset, shift_u:east,Z, shift_v:north,X
         height = camera_height * torch.ones_like(shift_u_meters)
         T = torch.cat([shift_u_meters, height, -shift_v_meters], dim=-1)  # shape = [B, 3]
@@ -520,7 +520,7 @@ class Model(nn.Module):
         grd_feature = self.GrdDownch(grd_feature)
 
         corr_maps = []        
-        self.meter_per_pixel = utils.get_meter_per_pixel() * utils.SatMap_original_sidelength / A
+        self.meter_per_pixel = boost_utils.get_meter_per_pixel() * boost_utils.SatMap_original_sidelength / A
         
         crop_H = int(A - self.args.shift_range_lat * 3 / self.meter_per_pixel)
         crop_W = int(A - self.args.shift_range_lon * 3 / self.meter_per_pixel)

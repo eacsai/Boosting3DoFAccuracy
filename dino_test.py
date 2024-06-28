@@ -1,45 +1,68 @@
+from transformers import Dinov2Backbone
 import torch
-from transformers import AutoImageProcessor, AutoModel
+import torchvision.transforms as T
 from PIL import Image
-import torch.nn as nn
+import numpy as np
+from sklearn.decomposition import PCA
 
-# 设置设备为GPU，如果不可用则使用CPU
-device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+# model_config = Dinov2Config.from_pretrained('./dinov2-base', image_size=(512, 512))
+model = Dinov2Backbone.from_pretrained("./dinov2-small", out_indices=[-1]).to('cuda')
+vits14 = torch.hub.load('./dinov2', 'dinov2_vits14', weights={'LVD142M':'./dinov2_models/dinov2_vits14_pretrain.pth'}, source='local').cuda()
+# pixel_values = torch.randn(1, 3, 128, 512)
 
-# 加载预训练的图像处理器
-processor = AutoImageProcessor.from_pretrained('./dinov2-base',
-                                                local_files_only=True)
+patch_h = 16
+patch_w = 64
+feat_dim = 384
 
-# 加载预训练的模型，并将其移至相应的设备（GPU或CPU）
-model = AutoModel.from_pretrained('./dinov2-base',
-                                  local_files_only=True).to(device)
+def normalize(x):
+    denominator = np.linalg.norm(x, axis=-1, keepdims=True)
+    denominator = np.where(denominator == 0, 1, denominator)
+    return x / denominator
 
-# 打开第一张图片
-image1 = Image.open('sat.png')
+def reshape_normalize(x):
+    '''
+    Args:
+        x: [B, C, H, W]
 
-# 不计算梯度，用于推断
-with torch.no_grad():
-    # 使用处理器处理图像，转换为PyTorch张量，并移至相应设备
-    inputs1 = processor(images=image1, return_tensors="pt").to(device)
-    # 通过模型获取输出
-    outputs1 = model(**inputs1)
-    # 获取最后一层的隐藏状态
-    image_features1 = outputs1.last_hidden_state
-    # 对特征取平均，以得到单个向量表示
-    image_features1 = image_features1.mean(dim=1)
-    print(f"outputs1 is {image_features1.shape}")
+    Returns:
 
-# 重复上述过程，处理第二张图片
-image2 = Image.open('sat.png')
-with torch.no_grad():
-    inputs2 = processor(images=image2, return_tensors="pt").to(device)
-    outputs2 = model(**inputs2)
-    image_features2 = outputs2.last_hidden_state
-    image_features2 = image_features2.mean(dim=1)
+    '''
+    B, C, H, W = x.shape
+    x = x.transpose([0, 2, 3, 1]).reshape([-1, C])
 
-# 使用余弦相似度计算两个向量的相似度
-cos = nn.CosineSimilarity(dim=0)
-sim = cos(image_features1[0],image_features2[0]).item()
-# 将相似度值调整到[0,1]范围内
-sim = (sim+1)/2
-print('Similarity:', sim)
+    denominator = np.linalg.norm(x, axis=-1, keepdims=True)
+    denominator = np.where(denominator==0, 1, denominator)
+    return x / denominator
+
+def single_features_to_RGB(sat_features):
+    sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
+    # 1. 重塑特征图形状为 [256, 64*64]
+    B, C, H, W = sat_feat.shape
+    flatten = np.concatenate([sat_feat], axis=0)
+    # 2. 进行 PCA 降维到 3 维
+    pca = PCA(n_components=3)
+    pca.fit(reshape_normalize(flatten))
+    
+    # 3. 归一化到 [0, 1] 范围
+    sat_feat_new = ((normalize(pca.transform(reshape_normalize(sat_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+
+    sat = Image.fromarray((sat_feat_new[0] * 255).astype(np.uint8))
+    # sat = sat.resize((512, 512))
+    sat.save('test_feat.png')
+
+transform = T.Compose([
+    T.Resize((patch_h * 14, patch_w * 14)),
+    T.ToTensor(),
+    T.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+])
+
+img = Image.open('./grd_feat.png').convert('RGB')
+
+imgs_tensor = transform(img).unsqueeze(0).to('cuda')
+outputs = vits14.forward_features(imgs_tensor)['x_norm_patchtokens'].permute(0,2,1)
+
+features = outputs.reshape(1, feat_dim, patch_h ,patch_w)
+
+single_features_to_RGB(features)
+
+

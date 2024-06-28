@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 
 import torch
 import pandas as pd
-import utils
+import boost_utils
 import torchvision.transforms.functional as TF
 from torchvision import transforms
 from cfgnode import CfgNode
@@ -176,8 +176,8 @@ class SatGrdDatasetFord(Dataset):
         # # camera location represented in world coordinates,
         # # world coordinates is centered at the body coordinates, but with X pointing north, Y pointing east, Z pointing down
 
-        g_x, g_y = utils.gps2utm(float(g_lat), float(g_lon), float(s_lat))
-        s_x, s_y = utils.gps2utm(float(s_lat), float(s_lon), float(s_lat))
+        g_x, g_y = boost_utils.gps2utm(float(g_lat), float(g_lon), float(s_lat))
+        s_x, s_y = boost_utils.gps2utm(float(s_lat), float(s_lon), float(s_lat))
         # x, y here are the x, y under gps/utm coordinates, x pointing right and y pointing up
 
         b_delta_u = (g_x - s_x) / self.meters_per_pixel # relative u shift of body frame with respect to satellite image center
@@ -314,8 +314,8 @@ class SatGrdDatasetFordTest(Dataset):
         # # camera location represented in world coordinates,
         # # world coordinates is centered at the body coordinates, but with X pointing north, Y pointing east, Z pointing down
 
-        g_x, g_y = utils.gps2utm(float(g_lat), float(g_lon), float(s_lat))
-        s_x, s_y = utils.gps2utm(float(s_lat), float(s_lon), float(s_lat))
+        g_x, g_y = boost_utils.gps2utm(float(g_lat), float(g_lon), float(s_lat))
+        s_x, s_y = boost_utils.gps2utm(float(s_lat), float(s_lon), float(s_lat))
         # x, y here are the x, y under gps/utm coordinates, x pointing right and y pointing up
 
         b_delta_u = (

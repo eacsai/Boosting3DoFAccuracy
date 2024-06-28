@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 from torchvision import transforms
-import utils
+import boost_utils
 import os
 import torchvision.transforms.functional as TF
 
@@ -18,8 +18,75 @@ from swin_transformer import TransOptimizerS2GP_V1, TransOptimizerG2SP_V1
 from swin_transformer_cross import TransOptimizerG2SP, TransOptimizerG2SPV2, SwinTransformerSelf
 from cross_attention import CrossViewAttention
 
-EPS = utils.EPS
+from torch_geometry import euler_angles_to_matrix, get_perspective_transform
+import cv2
 
+EPS = boost_utils.EPS
+
+to_pil_image = transforms.ToPILImage()
+
+
+def get_BEV(pano_image, fov, roll = 0, pitch = 0, yaw = 0, dty = 0):
+    dty = int(dty)
+    Hp, Wp = pano_image.shape[1:3]
+    dx = pitch/360 * Wp 
+    dy = -roll/180 * Hp 
+    bev_image = get_BEV_tensor(pano_image,500,500,Fov = fov, dty = dty,  dx = dx, dy = dy)
+    return bev_image
+
+def get_BEV_tensor(img, Ho, Wo, Fov=170, dty=-20, dx=0, dy=0, dataset=False, out=None, device = 'cpu'):
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = device
+    frame = img.permute(1,2,0)
+
+    Hp, Wp = frame.shape[0], frame.shape[1]  # Panorama image dimensions
+    ######################
+    # frame = torch.from_numpy(img.astype(np.float32)).to(device)
+    if out is None:
+        Fov = Fov * torch.pi / 180  # Field of View in radians
+        center = torch.tensor([Wp / 2 + dx, Hp + dy]).to(device)  # Overhead view center
+
+        anglex = torch.tensor(dx).to(device) * 2 * torch.pi / Wp
+        angley = -torch.tensor(dy).to(device) * torch.pi / Hp
+        anglez = torch.tensor(0).to(device)
+
+        # Euler angles
+        euler_angles = (anglex, angley, anglez)
+        euler_angles = torch.stack(euler_angles, -1)
+
+        # Calculate the rotation matrix
+        R02 = euler_angles_to_matrix(euler_angles, "XYZ")
+        R20 = torch.inverse(R02)
+
+        f = Wo / 2 / torch.tan(torch.tensor(Fov / 2))
+        out = torch.zeros((Wo, Ho, 2)).to(device)
+        f0 = torch.zeros((Wo, Ho, 3)).to(device)
+        f0[:, :, 0] = Ho / 2 - (torch.ones((Ho, Wo)).to(device) * (torch.arange(Ho)).to(device)).T
+        f0[:, :, 1] = Wo / 2 - torch.ones((Ho, Wo)).to(device) * torch.arange(Wo).to(device)
+        f0[:, :, 2] = -torch.ones((Wo, Ho)).to(device) * f
+        f1 = R20 @ f0.reshape((-1, 3)).T  # x, y, z (3, N)
+        # f1 = f0.reshape((-1, 3)).T
+        f1_0 = torch.sqrt(torch.sum(f1**2, 0))
+        f1_1 = torch.sqrt(torch.sum(f1[:2, :]**2, 0))
+        theta = torch.arctan2(f1[2, :], f1_1) + torch.pi / 2  # [-pi/2, pi/2] => [0, pi]
+        phi = torch.arctan2(f1[1, :], f1[0, :])  # [-pi, pi]
+        phi = phi + torch.pi  # [0, 2pi]
+
+        i_p = 1 - theta / torch.pi  # [0, 1]
+        j_p = 1 - phi / (2 * torch.pi)  # [0, 1]
+        out[:, :, 0] = j_p.reshape((Ho, Wo))
+        out[:, :, 1] = i_p.reshape((Ho, Wo))
+        out[:, :, 0] = (out[:, :, 0] - 0.5) / 0.5  # [-1, 1]
+        out[:, :, 1] = (out[:, :, 1] - 0.5) / 0.5  # [-1, 1]
+    # else:
+    #     out = out.to(device)
+
+    BEV = F.grid_sample(frame.permute(2, 0, 1).unsqueeze(0).float(), out.unsqueeze(0).to(frame.device), align_corners=True)
+    # print("Read image ues {:.2f} ms, warpPerspective image use {:.2f} ms, Get matrix ues {:.2f} ms, Get out ues {:.2f} ms, All out ues {:.2f} ms.".format((t1-t0)*1000,(t2-t1)*1000, (t3-t2)*1000,(t4-t3)*1000,(t4-t0)*1000))
+    if dataset:
+        return BEV.squeeze(0)
+    else:
+        return BEV.squeeze(0)
 
 class ModelVigor(nn.Module):
     def __init__(self, args):  # device='cuda:0',
@@ -151,6 +218,16 @@ class ModelVigor(nn.Module):
 
         shift_u = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
         shift_v = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
+
+        grd_project, _, _ = self.project_grd_to_map(
+            grd_img_left, None, gt_rot, shift_u, shift_v, level=2, meter_per_pixel=meter_per_pixel
+        )
+        grd_project_img = to_pil_image(grd_project[0])
+        grd_project_img.save('polar_project.png')
+
+        bev_project = get_BEV(grd_img_left[0], 174)
+        bev_project_img = to_pil_image(bev_project)
+        bev_project_img.save('bev_project.png')
 
         grd2sat8, _, u = self.project_grd_to_map(
             grd_feat_list[0], None, gt_rot, shift_u, shift_v, level=0, meter_per_pixel=meter_per_pixel

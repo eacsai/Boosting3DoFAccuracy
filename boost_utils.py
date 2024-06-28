@@ -1,6 +1,8 @@
 
 import numpy as np
 import torch
+import einops as E
+import torch.nn.functional as F
 
 CameraGPS_shift = [1.08, 0.26]
 Satmap_zoom = 18
@@ -186,3 +188,42 @@ def get_height_config():
     return start, end, count
 
     
+def center_padding(images, patch_size):
+    _, _, h, w = images.shape
+    diff_h = h % patch_size
+    diff_w = w % patch_size
+
+    if diff_h == 0 and diff_w == 0:
+        return images
+
+    pad_h = patch_size - diff_h
+    pad_w = patch_size - diff_w
+
+    pad_t = pad_h // 2
+    pad_l = pad_w // 2
+    pad_r = pad_w - pad_l
+    pad_b = pad_h - pad_t
+
+    images = F.pad(images, (pad_l, pad_r, pad_t, pad_b))
+    return images
+
+def tokens_to_output(output_type, dense_tokens, cls_token, feat_hw):
+    if output_type == "cls":
+        assert cls_token is not None
+        output = cls_token
+    elif output_type == "gap":
+        output = dense_tokens.mean(dim=1)
+    elif output_type == "dense":
+        h, w = feat_hw
+        dense_tokens = E.rearrange(dense_tokens, "b (h w) c -> b c h w", h=h, w=w)
+        output = dense_tokens.contiguous()
+    elif output_type == "dense-cls":
+        assert cls_token is not None
+        h, w = feat_hw
+        dense_tokens = E.rearrange(dense_tokens, "b (h w) c -> b c h w", h=h, w=w)
+        cls_token = cls_token[:, :, None, None].repeat(1, 1, h, w)
+        output = torch.cat((dense_tokens, cls_token), dim=1).contiguous()
+    else:
+        raise ValueError()
+
+    return output

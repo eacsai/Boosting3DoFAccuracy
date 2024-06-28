@@ -23,11 +23,11 @@ from torch.utils.data import Dataset, Subset
 
 num_thread_workers = 2
 # root = '/backup/dataset/VIGOR'
-root = '/home/yujiao/dataset/VIGOR'
+root = '/data/dataset/VIGOR'
 
 
 class VIGORDataset(Dataset):
-    def __init__(self, root, rotation_range, label_root='splits_new', split='same', train=True, transform=None, pos_only=True):
+    def __init__(self, root, rotation_range, label_root='splits', split='same', train=True, transform=None, pos_only=True):
         self.root = root
         self.rotation_range = rotation_range
         self.label_root = label_root
@@ -79,11 +79,11 @@ class VIGORDataset(Dataset):
             # load grd panorama list
             if self.split == 'same':
                 if self.train:
-                    label_fname = os.path.join(self.root, self.label_root, city, 'same_area_balanced_train__corrected.txt')
+                    label_fname = os.path.join(self.root, self.label_root, city, 'same_area_balanced_train.txt')
                 else:
-                    label_fname = os.path.join(self.root, label_root, city, 'same_area_balanced_test__corrected.txt')
+                    label_fname = os.path.join(self.root, label_root, city, 'same_area_balanced_test.txt')
             elif self.split == 'cross':
-                label_fname = os.path.join(self.root, self.label_root, city, 'pano_label_balanced__corrected.txt')
+                label_fname = os.path.join(self.root, self.label_root, city, 'pano_label_balanced.txt')
 
             with open(label_fname, 'r') as file:
                 for line in file.readlines():

@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 import torch
 import pandas as pd
-import utils
+import boost_utils
 import torchvision.transforms.functional as TF
 from torchvision import transforms
 import torch.nn.functional as F
@@ -58,7 +58,7 @@ class SatGrdDataset(Dataset):
                  transform=None, shift_range_lat=20, shift_range_lon=20, rotation_range=10):
         self.root = root
 
-        self.meter_per_pixel = utils.get_meter_per_pixel(scale=1)
+        self.meter_per_pixel = boost_utils.get_meter_per_pixel(scale=1)
         self.shift_range_meters_lat = shift_range_lat  # in terms of meters
         self.shift_range_meters_lon = shift_range_lon  # in terms of meters
         self.shift_range_pixels_lat = shift_range_lat / self.meter_per_pixel  # shift range is in terms of meters
@@ -168,8 +168,8 @@ class SatGrdDataset(Dataset):
 
         sat_rot = sat_map.rotate(-heading / np.pi * 180)
         sat_align_cam = sat_rot.transform(sat_rot.size, Image.AFFINE,
-                                          (1, 0, utils.CameraGPS_shift_left[0] / self.meter_per_pixel,
-                                           0, 1, utils.CameraGPS_shift_left[1] / self.meter_per_pixel),
+                                          (1, 0, boost_utils.CameraGPS_shift_left[0] / self.meter_per_pixel,
+                                           0, 1, boost_utils.CameraGPS_shift_left[1] / self.meter_per_pixel),
                                           resample=Image.BILINEAR)
         # the homography is defined on: from target pixel to source pixel
         # now east direction is the real vehicle heading direction
@@ -190,7 +190,7 @@ class SatGrdDataset(Dataset):
         sat_rand_shift_rand_rot = \
             sat_rand_shift.rotate(theta * self.rotation_range)
 
-        sat_map =TF.center_crop(sat_rand_shift_rand_rot, utils.SatMap_process_sidelength)
+        sat_map =TF.center_crop(sat_rand_shift_rand_rot, boost_utils.SatMap_process_sidelength)
         # sat_map = np.array(sat_map, dtype=np.float32)
 
         # transform
@@ -226,7 +226,7 @@ class SatGrdDatasetTest(Dataset):
                  transform=None, shift_range_lat=20, shift_range_lon=20, rotation_range=10):
         self.root = root
 
-        self.meter_per_pixel = utils.get_meter_per_pixel(scale=1)
+        self.meter_per_pixel = boost_utils.get_meter_per_pixel(scale=1)
         self.shift_range_meters_lat = shift_range_lat  # in terms of meters
         self.shift_range_meters_lon = shift_range_lon  # in terms of meters
         self.shift_range_pixels_lat = shift_range_lat / self.meter_per_pixel  # shift range is in terms of meters
@@ -339,8 +339,8 @@ class SatGrdDatasetTest(Dataset):
 
         sat_rot = sat_map.rotate(-heading / np.pi * 180)
         sat_align_cam = sat_rot.transform(sat_rot.size, Image.AFFINE,
-                                          (1, 0, utils.CameraGPS_shift_left[0] / self.meter_per_pixel,
-                                           0, 1, utils.CameraGPS_shift_left[1] / self.meter_per_pixel),
+                                          (1, 0, boost_utils.CameraGPS_shift_left[0] / self.meter_per_pixel,
+                                           0, 1, boost_utils.CameraGPS_shift_left[1] / self.meter_per_pixel),
                                           resample=Image.BILINEAR)
         # the homography is defined on: from target pixel to source pixel
         # now east direction is the real vehicle heading direction
@@ -364,7 +364,7 @@ class SatGrdDatasetTest(Dataset):
         sat_rand_shift_rand_rot = \
             sat_rand_shift.rotate(theta * self.rotation_range)
 
-        sat_map = TF.center_crop(sat_rand_shift_rand_rot, utils.SatMap_process_sidelength)
+        sat_map = TF.center_crop(sat_rand_shift_rand_rot, boost_utils.SatMap_process_sidelength)
         # sat_map = np.array(sat_map, dtype=np.float32)
 
         # transform
@@ -392,7 +392,7 @@ class SatGrdDatasetTest(Dataset):
 
 
 def load_train_data(batch_size, shift_range_lat=20, shift_range_lon=20, rotation_range=10):
-    SatMap_process_sidelength = utils.get_process_satmap_sidelength()
+    SatMap_process_sidelength = boost_utils.get_process_satmap_sidelength()
 
     satmap_transform = transforms.Compose([
         transforms.Resize(size=[SatMap_process_sidelength, SatMap_process_sidelength]),
@@ -419,7 +419,7 @@ def load_train_data(batch_size, shift_range_lat=20, shift_range_lon=20, rotation
 
 
 def load_test1_data(batch_size, shift_range_lat=20, shift_range_lon=20, rotation_range=10):
-    SatMap_process_sidelength = utils.get_process_satmap_sidelength()
+    SatMap_process_sidelength = boost_utils.get_process_satmap_sidelength()
 
     satmap_transform = transforms.Compose([
         transforms.Resize(size=[SatMap_process_sidelength, SatMap_process_sidelength]),
@@ -450,7 +450,7 @@ def load_test1_data(batch_size, shift_range_lat=20, shift_range_lon=20, rotation
 
 
 def load_test2_data(batch_size, shift_range_lat=20, shift_range_lon=20, rotation_range=10):
-    SatMap_process_sidelength = utils.get_process_satmap_sidelength()
+    SatMap_process_sidelength = boost_utils.get_process_satmap_sidelength()
 
     satmap_transform = transforms.Compose([
         transforms.Resize(size=[SatMap_process_sidelength, SatMap_process_sidelength]),

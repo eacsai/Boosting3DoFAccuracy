@@ -4,26 +4,20 @@ import numpy as np
 import torch
 import boost_utils
 import torchvision.transforms.functional as TF
-import gc
 
 from VGG import VGGUnet, Encoder, Decoder, Decoder2, Decoder4
+from DPT.DPT_model import DPT
 from jacobian import grid_sample
 
 from models_ford import loss_func
 from RNNs import Uncertainty
 from swin_transformer import TransOptimizerS2GP_V1, TransOptimizerG2SP_V1
 from cross_attention import CrossViewAttention
-from Transformer import TransformerFusion
-from torchvision import transforms
-from sklearn.decomposition import PCA
-import cv2
+from transformers import Dinov2Backbone
 import matplotlib.pyplot as plt
-from project_kitti import *
-
+from sklearn.decomposition import PCA
 from visualize import *
-to_pil_image = transforms.ToPILImage()
-
-EPS = boost_utils.EPS
+from dino import DINO
 
 def vis_corr(corr):
     corr = corr.clone().cpu()
@@ -43,7 +37,7 @@ def vis_corr(corr):
     plt.savefig('correlation_map.png')
     # 关闭 plt
     plt.close()
-
+    
 def normalize(x):
     denominator = np.linalg.norm(x, axis=-1, keepdims=True)
     denominator = np.where(denominator == 0, 1, denominator)
@@ -63,97 +57,6 @@ def reshape_normalize(x):
     denominator = np.linalg.norm(x, axis=-1, keepdims=True)
     denominator = np.where(denominator==0, 1, denominator)
     return x / denominator
-
-def g2s_feat_to_RGB(g2s_feats):
-    g2s_feat = g2s_feats[:1,:,:,:].data.cpu().numpy()
-    B, C, H, W = g2s_feat.shape
-    flatten = np.concatenate([g2s_feat], axis=0)
-    # 2. 进行 PCA 降维到 3 维
-    pca = PCA(n_components=3)
-    pca.fit(reshape_normalize(flatten))
-    g2s_feat_new = ((normalize(pca.transform(reshape_normalize(g2s_feat))) + 1 )/ 2).reshape(B, H, W, 3)
-
-    fuse = Image.fromarray((g2s_feat_new[0] * 255).astype(np.uint8))
-    fuse = fuse.resize((512, 512))
-    fuse.save('crop_fuse_image.png')
-
-def all_features_to_RGB(sat_features, fuse_features, grd_features):
-    sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
-    fuse_feat = fuse_features[:1,:,:,:].data.cpu().numpy()
-    grd_feat = grd_features[0,:,:,:,:].data.cpu().numpy()
-    # 1. 重塑特征图形状为 [256, 64*64]
-    B, C, H, W = fuse_feat.shape
-    S = grd_features.shape[1]
-    flatten = np.concatenate([grd_feat, fuse_feat, sat_feat], axis=0)
-    # 2. 进行 PCA 降维到 3 维
-    pca = PCA(n_components=3)
-    pca.fit(reshape_normalize(flatten))
-    # 3. 归一化到 [0, 1] 范围
-    sat_feat_new = ((normalize(pca.transform(reshape_normalize(sat_feat))) + 1 )/ 2).reshape(B, H, W, 3)
-    # mask_fuse = fuse_features[:1,0,:,:,None].data.cpu().numpy()
-    # mask_fuse = mask_fuse / mask_fuse.max()
-    # mask = np.linalg.norm(fuse_feat, axis=1)[:, :, :, None] > 0
-    fuse_feat_new = ((normalize(pca.transform(reshape_normalize(fuse_feat))) + 1 )/ 2).reshape(B, H, W, 3)
-    
-    # mask_grd = grd_features[0,:,0,0,:,:,None].data.cpu().numpy()
-    # mask_grd = mask_grd / mask_grd.max()
-    # mask = np.linalg.norm(grd_feat, axis=1)[:, :, :, None] > 0
-    grd_feat_new = ((normalize(pca.transform(reshape_normalize(grd_feat))) + 1 )/ 2).reshape(S, H, W, 3)
-
-    sat = Image.fromarray((sat_feat_new[0] * 255).astype(np.uint8))
-    sat = sat.resize((512, 512))
-    sat.save('sat_feat.png')
-    
-    fuse = Image.fromarray((fuse_feat_new[0] * 255).astype(np.uint8))
-    fuse = fuse.resize((512, 512))
-    fuse.save('fuse_image.png')
-    
-    for i in range(S):
-        grd = Image.fromarray((grd_feat_new[i] * 255).astype(np.uint8))
-        grd = grd.resize((512, 512))
-        grd.save(f'grd_image{i}.png')
-    
-    # 手动垃圾回收
-    del sat_feat, fuse_feat, grd_feat, flatten
-    gc.collect()
-   
-    
-def grd_features_to_RGB(sat_features, fuse_features,grd_features):
-    sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
-    fuse_feat = fuse_features[:1,:,:,:].data.cpu().numpy()
-    grd_feat = grd_features[0,:,0,:,:,:].data.cpu().numpy()
-    # 1. 重塑特征图形状为 [256, 64*64]
-    B, C, H, W = fuse_feat.shape
-    S = grd_features.shape[1]
-    flatten = np.concatenate([grd_feat, fuse_feat], axis=0)
-    # 2. 进行 PCA 降维到 3 维
-    pca = PCA(n_components=3)
-    pca.fit(reshape_normalize(flatten))
-    
-    # 3. 归一化到 [0, 1] 范围
-    sat_feat_new = ((normalize(pca.transform(reshape_normalize(sat_feat))) + 1 )/ 2).reshape(B, H, W, 3)
-    # mask_fuse = fuse_features[:1,0,:,:,None].data.cpu().numpy()
-    # mask_fuse = mask_fuse / mask_fuse.max()
-    # mask = np.linalg.norm(fuse_feat, axis=1)[:, :, :, None] > 0
-    fuse_feat_new = ((normalize(pca.transform(reshape_normalize(fuse_feat))) + 1 )/ 2).reshape(B, H, W, 3)
-    
-    # mask_grd = grd_features[0,:,0,0,:,:,None].data.cpu().numpy()
-    # mask_grd = mask_grd / mask_grd.max()
-    # mask = np.linalg.norm(grd_feat, axis=1)[:, :, :, None] > 0
-    grd_feat_new = ((normalize(pca.transform(reshape_normalize(grd_feat))) + 1 )/ 2).reshape(S, H, W, 3)
-
-    sat = Image.fromarray((sat_feat_new[0] * 255).astype(np.uint8))
-    sat = sat.resize((512, 512))
-    sat.save('sat_image.png')
-    
-    fuse = Image.fromarray((fuse_feat_new[0] * 255).astype(np.uint8))
-    fuse = fuse.resize((512, 512))
-    fuse.save('fuse_image.png')
-    
-    for i in range(S):
-        grd = Image.fromarray((grd_feat_new[i] * 255).astype(np.uint8))
-        grd = grd.resize((512, 512))
-        grd.save(f'grd_image{i}.png')
 
 def sat_features_to_RGB(sat_features, fuse_features):
     sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
@@ -175,14 +78,29 @@ def sat_features_to_RGB(sat_features, fuse_features):
     
     fuse = Image.fromarray((fuse_feat_new[0] * 255).astype(np.uint8))
     fuse = fuse.resize((512, 512))
-    fuse.save('fuse_image_new.png')
+    fuse.save('fuse_image.png')
+
+def single_features_to_RGB(sat_features):
+    sat_feat = sat_features[:1,:,:,:].data.cpu().numpy()
+    # 1. 重塑特征图形状为 [256, 64*64]
+    B, C, H, W = sat_feat.shape
+    flatten = np.concatenate([sat_feat], axis=0)
+    # 2. 进行 PCA 降维到 3 维
+    pca = PCA(n_components=3)
+    pca.fit(reshape_normalize(flatten))
+    
+    # 3. 归一化到 [0, 1] 范围
+    sat_feat_new = ((normalize(pca.transform(reshape_normalize(sat_feat))) + 1 )/ 2).reshape(B, H, W, 3)
+
+    sat = Image.fromarray((sat_feat_new[0] * 255).astype(np.uint8))
+    # sat = sat.resize((512, 512))
+    sat.save('test_feat.png')
 
 class Model(nn.Module):
-    def __init__(self, args, device):  # device='cuda:0',
+    def __init__(self, args):  # device='cuda:0',
         super(Model, self).__init__()
 
         self.args = args
-        self.device = device
         self.level = args.level
         self.N_iters = args.N_iters
 
@@ -195,9 +113,24 @@ class Model(nn.Module):
             self.Dec2 = Decoder2()
             self.CVattn = CrossViewAttention(blocks=2, dim=256, heads=4, dim_head=16, qkv_bias=False)
         else:
-            self.GrdEnc = Encoder()
-            self.GrdDec = Decoder()
             self.GrdFeatureNet = VGGUnet(self.level)
+
+        # self.mlp = MLP(384, 384, 128)
+        self.dino_feat = DINO(output='dense')
+        self.dpt = DPT()
+        # self.linera = Linear()
+        # self.meters_per_pixel = []
+
+        # self.feature_extractor = torch.hub.load('./dinov2', 'dinov2_vits14', weights={'LVD142M':'./dinov2_models/dinov2_vits14_pretrain.pth'}, source='local').cuda().eval()
+        # self.project = nn.Sequential(
+        #     nn.Conv2d(384, 384, kernel_size=3, stride=1, padding=1),
+        #     nn.ReLU(True),
+        #     nn.Conv2d(384, 128, kernel_size=1, stride=1, padding=0),
+        #     nn.ReLU(True),
+        # )
+        # self.grd_patch_h = 32
+        # self.grd_patch_w = 128
+        # self.sat_patch = 64
 
         self.meters_per_pixel = []
         meter_per_pixel = boost_utils.get_meter_per_pixel()
@@ -225,15 +158,6 @@ class Model(nn.Module):
 
         if self.args.use_uncertainty:
             self.uncertain_net = Uncertainty()
-
-        self.FuseNet1 = TransformerFusion(seq=self.args.sequence, n_embd=64, n_head=2, 
-                                             n_layers=2)
-        
-        self.FuseNet2 = TransformerFusion(seq=self.args.sequence, n_embd=128, n_head=2, 
-                                        n_layers=2)
-
-        self.FuseNet3 = TransformerFusion(seq=self.args.sequence, n_embd=256, n_head=2, 
-                                             n_layers=2)
 
         torch.autograd.set_detect_anomaly(True)
         # Running the forward pass with detection enabled will allow the backward pass to print the traceback of the forward operation that created the failing backward function.
@@ -361,7 +285,7 @@ class Model(nn.Module):
         # realword: X: south, Y:down, Z: east   origin is set to the ground plane
 
         # meshgrid the sat pannel
-        i = j = torch.arange(0, satmap_sidelength).to(self.device)  # to(self.device)
+        i = j = torch.arange(0, satmap_sidelength).cuda()  # to(self.device)
         ii, jj = torch.meshgrid(i, j)  # i:h,j:w
 
         # uv is coordinate from top/left, v: south, u:east
@@ -370,12 +294,12 @@ class Model(nn.Module):
         # sat map from top/left to center coordinate
         u0 = v0 = satmap_sidelength // 2
         uv_center = uv - torch.tensor(
-            [u0, v0]).to(self.device)  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
+            [u0, v0]).cuda()  # .to(self.device) # shape = [satmap_sidelength, satmap_sidelength, 2]
 
         # affine matrix: scale*R
         meter_per_pixel = boost_utils.get_meter_per_pixel()
         meter_per_pixel *= boost_utils.get_process_satmap_sidelength() / satmap_sidelength
-        R = torch.tensor([[0, 1], [1, 0]]).float().to(self.device)  # to(self.device) # u_center->z, v_center->x
+        R = torch.tensor([[0, 1], [1, 0]]).float().cuda()  # to(self.device) # u_center->z, v_center->x
         Aff_sat2real = meter_per_pixel * R  # shape = [2,2]
 
         # Trans matrix from sat to realword
@@ -393,68 +317,62 @@ class Model(nn.Module):
         # realword: X: south, Y:down, Z: east
         # camera: u:south, v: down from center (when heading east, need to rotate heading angle)
         # XYZ_1:[H,W,4], heading:[B,1], camera_k:[B,3,3], shift:[B,2]
-        B, S = ori_heading.size()
-        shift_u_meters = ori_shift_u
-        shift_v_meters = ori_shift_v
-        if self.args.rotation_range == 0:
-            heading = ori_heading
-        else:
-            heading = ori_heading * self.args.rotation_range / 180 * np.pi
+        B = ori_heading.shape[0]
+        shift_u_meters = self.args.shift_range_lon * ori_shift_u
+        shift_v_meters = self.args.shift_range_lat * ori_shift_v
+        heading = ori_heading * self.args.rotation_range / 180 * np.pi
 
-        cos = torch.cos(-heading).unsqueeze(-1)
-        sin = torch.sin(-heading).unsqueeze(-1)
+        cos = torch.cos(-heading)
+        sin = torch.sin(-heading)
         zeros = torch.zeros_like(cos)
         ones = torch.ones_like(cos)
-        R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)   # shape = [B,9]
-        R = R.view(B, S, 3, 3)  # shape = [B,S,3,3]
+        R = torch.cat([cos, zeros, -sin, zeros, ones, zeros, sin, zeros, cos], dim=-1)  # shape = [B,9]
+        R = R.view(B, 3, 3)  # shape = [B,3,3]
 
         camera_height = boost_utils.get_camera_height()
-        # camera offset, shift_u:east,Z, shift_v:north,X
+        # camera offset, shift[0]:east,Z, shift[1]:north,X
         height = camera_height * torch.ones_like(shift_u_meters)
-        T = torch.cat([shift_u_meters, height, -shift_v_meters], dim=-1)  # shape = [B, 3]
-        T = torch.unsqueeze(T, dim=-1)  # shape = [B,S,3,1]
-        T = torch.einsum('bsij, bsjk -> bsik', R, T)
+        T = torch.cat([shift_v_meters, height, -shift_u_meters], dim=-1)  # shape = [B, 3]
+        T = torch.unsqueeze(T, dim=-1)  # shape = [B,3,1]
+
         # P = K[R|T]
         camera_k = ori_camera_k.clone()
         camera_k[:, :1, :] = ori_camera_k[:, :1,
                              :] * grd_W / ori_grdW  # original size input into feature get network/ output of feature get network
         camera_k[:, 1:2, :] = ori_camera_k[:, 1:2, :] * grd_H / ori_grdH
-        P = torch.einsum('bij, bsjk -> bsik', camera_k, torch.cat([R, T], dim=-1)).float()  # shape = [B,S,3,4]
+        P = camera_k @ torch.cat([R, T], dim=-1)
 
-        uv1 = torch.einsum('bsij, ehwj -> bsehwi', P, XYZ_1.unsqueeze(0)) # shape = [B,S,E,H,W,3]
+        uv1 = torch.sum(P[:, None, None, :, :] * XYZ_1[None, :, :, None, :], dim=-1)
         # only need view in front of camera ,Epsilon = 1e-6
-        uv1_last = torch.maximum(uv1[:, :, :, :, :, 2:], torch.ones_like(uv1[:, :, :, :, :, 2:]) * 1e-6)
-        uv = uv1[:, :, :, :, :, :2] / uv1_last  # shape = [B, S, E, H, W,2]
+        uv1_last = torch.maximum(uv1[:, :, :, 2:], torch.ones_like(uv1[:, :, :, 2:]) * 1e-6)
+        uv = uv1[:, :, :, :2] / uv1_last  # shape = [B, H, W, 2]
 
-        mask = torch.greater(uv1_last, torch.ones_like(uv1[:, :, :, :, :, 2:]) * 1e-6)
+        mask = torch.greater(uv1_last, torch.ones_like(uv1[:, :, :, 2:]) * 1e-6)
 
         return uv, mask
 
     def project_grd_to_map(self, grd_f, grd_c, shift_u, shift_v, heading, camera_k, satmap_sidelength, ori_grdH,
                            ori_grdW):
         '''
-        grd_f: [B, S, C, H, W]
+        grd_f: [B, C, H, W]
         grd_c: [B, 1, H, W]
-        shift_u: [B, S, 1]
-        shift_v: [B, S, 1]
-        heading: [B, S, 1]
+        shift_u: [B, 1]
+        shift_v: [B, 1]
+        heading: [B, 1]
         camera_k: [B, 3, 3]
         satmap_sidelength: scalar
         ori_grdH: scalar
         ori_grdW: scalar
         '''
 
-        B, S, C, H, W = grd_f.size()
+        B, C, H, W = grd_f.size()
 
         XYZ_1 = self.sat2world(satmap_sidelength)  # [ sidelength,sidelength,4]
         uv, mask = self.World2GrdImgPixCoordinates(shift_u, shift_v, heading, XYZ_1, camera_k,
-                                                   H, W, ori_grdH, ori_grdW)  # [B, S, E, H, W, 2]
+                                                   H, W, ori_grdH, ori_grdW)  # [B, S, E, H, W,2]
         # [B, H, W, 2], [2, B, H, W, 2], [1, B, H, W, 2]
 
-        E = uv.size()[2]
-        grd_f = grd_f.unsqueeze(2).repeat(1, 1, E, 1, 1, 1)
-        grd_f_trans, _ = grid_sample(grd_f.reshape(-1, C, H, W), uv.reshape(-1, satmap_sidelength, satmap_sidelength, 2), jac=None)
-        grd_f_trans = grd_f_trans.view(B, S, E, C, satmap_sidelength, satmap_sidelength)
+        grd_f_trans, _ = grid_sample(grd_f, uv, jac=None)
         # [B,C,sidelength,sidelength], [3, B, C, sidelength, sidelength]
         if grd_c is not None:
             grd_c_trans, _ = grid_sample(grd_c, uv)
@@ -462,7 +380,7 @@ class Model(nn.Module):
             grd_c_trans = None
 
         return grd_f_trans, grd_c_trans, uv[..., 0], mask
-    
+
     def Trans_update(self, shift_u, shift_v, heading, grd_feat_proj, sat_feat):
         B = shift_u.shape[0]
         grd_feat_norm = torch.norm(grd_feat_proj.reshape(B, -1), p=2, dim=-1)
@@ -486,24 +404,8 @@ class Model(nn.Module):
 
         return shift_u_new, shift_v_new, heading_new
 
-    def SequenceFusion(self, grd_feature, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0):
-        # input: grd_feature:[B,S,E,C,H,W]
-        # output: grd_feature:[B,C,H,W]
-
-        B, S, C, H, W = grd_feature.size()
-        if C == 64:
-            x, att = self.FuseNet1(grd_feature, attn_pdrop, resid_pdrop, pe_pdrop)
-        elif C == 128:
-            x, att = self.FuseNet2(grd_feature, attn_pdrop, resid_pdrop, pe_pdrop) 
-        else:
-            x, att = self.FuseNet3(grd_feature, attn_pdrop, resid_pdrop, pe_pdrop) 
-            
-        fuse_feature = torch.mean(x, dim=1)
-
-        return fuse_feature  # [B,C,H,W]
-
     def corr(self, sat_map, grd_img_left, left_camera_k, gt_shift_u=None, gt_shift_v=None, gt_heading=None,
-             loc_shift_left=None, heading_shift_left=None, real_gps=None, project = 'bev',mode='train'):
+             mode='train'):
         '''
         Args:
             sat_map: [B, C, A, A] A--> sidelength
@@ -512,93 +414,58 @@ class Model(nn.Module):
             gt_shift_u: [B, 1] u->longitudinal
             gt_shift_v: [B, 1] v->lateral
             gt_heading: [B, 1] east as 0-degree
-            loc_shift_left: [B, 1] ego system 
-            heading_shift_left: [B, 1] ego system
             mode:
+            file_name:
 
         Returns:
 
         '''
+        to_pil_image = transforms.ToPILImage()
+        B, _, ori_grdH, ori_grdW = grd_img_left.shape
 
-        B, S, C_in, ori_grdH, ori_grdW = grd_img_left.shape
+        # sat_map = F.interpolate(sat_map, size=(self.sat_patch * 14, self.sat_patch * 14), mode='bilinear', align_corners=False)
+        # grd_img_left = F.interpolate(grd_img_left, size=(self.grd_patch_h * 14, self.grd_patch_w * 14), mode='bilinear', align_corners=False)
+        
+        with torch.no_grad():
+            # mlp
+            # sat_feat = self.feature_extractor.forward_features(sat_map)['x_norm_patchtokens'].contiguous().permute(0,2,1).view(-1,384,self.sat_patch,self.sat_patch)
+            # grd_feat = self.feature_extractor.forward_features(grd_img_left)['x_norm_patchtokens'].contiguous().permute(0,2,1).view(-1,384,self.grd_patch_h,self.grd_patch_w)
+            
+            # dpt
+            sat_feat = self.dino_feat(sat_map)
+            grd_feat = self.dino_feat(grd_img_left)
+            if isinstance(sat_feat, (tuple, list)):
+                sat_feats = [_f.detach() for _f in sat_feat]
+            if isinstance(grd_feat, (tuple, list)):
+                grd_feats = [_f.detach() for _f in grd_feat]
+        # mlp    
+        # sat_feat = L2_norm(self.project(sat_feat))
+        # grd_feat = L2_norm(self.project(grd_feat))
+        
+        # dpt
+        sat_feat_list = self.dpt(sat_feats)
+        grd_feat_list = self.dpt(grd_feats)
 
-        shift_u = loc_shift_left[:,:,1:]
-        shift_v = loc_shift_left[:,:,:1]
+        shift_u = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
+        shift_v = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
         # heading = torch.zeros([B, 1], dtype=torch.float32, requires_grad=True, device=sat_map.device)
-        if self.args.rotation_range == 0:
-            heading = heading_shift_left
-        else:
-            heading = gt_heading
-        
-        # bev vis
-        # meter_per_pixel = utils.get_meter_per_pixel()
-        # meter_per_pixel *= utils.get_process_satmap_sidelength() / 512
-        # bev = get_BEV_kitti(grd_img_left, 512 , Tx = shift_v / meter_per_pixel, Ty = -shift_u / meter_per_pixel, heading=-heading) # [B,S,E,C,H,W]
-        
-        # for i in range(bev.shape[1]):
-        #     show_project = bev[0,i,:,:,:]
-        #     pro_image = to_pil_image(show_project)
-        #     pro_image.save(f'bev_image{i}.png')
-        
-        # original vis    
-        # test_proj, _, u, mask = self.project_grd_to_map(
-        #         grd_img_left, None, shift_u, shift_v, heading, left_camera_k, 512, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
-        
-        show_sat = sat_map[0,:,:,:]    
-        sat_image = to_pil_image(show_sat)
-        sat_image.save('sat_image.png')
-        # for i in range(test_proj.shape[1]):
-        #     show_project = test_proj[0,i,0,:,:,:]
-        #     # 将张量转换为NumPy数组，以便OpenCV处理
-        #     image_np = show_project.permute(1, 2, 0).cpu().numpy() * 255
-        #     image_np = image_np.astype(np.uint8).copy()
-            
-        #     # 将RGB通道转换为BGR通道
-        #     image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-        #     cv2.circle(image_np, (int(shift_v[0,i,0] / meter_per_pixel + 256), int(-shift_u[0,i,0] / meter_per_pixel + 256)), radius=3, color=(0, 0, 255), thickness=-1)  # 红色圆点
-        #     cv2.imwrite(f'pro_image{i}.png', image_np)
-        
-        sat_feat_list, sat_conf_list = self.SatFeatureNet(sat_map)
-
-        grd8, grd4, grd2 = self.GrdEnc(grd_img_left.view(-1, C_in, ori_grdH, ori_grdW))
-        
-        grd_list = [grd8, grd4, grd2]
-
-        # [H/8, W/8] [H/4, W/4] [H/2, W/2]
-        grd_feature_list = []
-        for level in range(len(sat_feat_list)):
-            meter_per_pixel = self.meters_per_pixel[level]
-            sat_feat = sat_feat_list[level]
-            grd_feat = grd_list[level]
-            _, C, H_g, W_g = grd_feat.size()
-            grd_feat = grd_feat.view(B, S, C, H_g, W_g)
-            A = sat_feat.shape[-1]
-            if project == 'bev':
-                grd_feat_proj = get_BEV_kitti(grd_feat, A , Tx = shift_v / meter_per_pixel, Ty = -shift_u / meter_per_pixel, heading=-heading)
-            else:
-                grd_feat_proj, _, u, mask = self.project_grd_to_map(
-                    grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW) # [B,S,E,C,H,W]
-                grd_feat_proj = grd_feat_proj[:, :, 0, :, :, :]
-
-            grd_feature = self.SequenceFusion(grd_feat_proj, attn_pdrop=0, resid_pdrop=0, pe_pdrop=0)  #[B,C,H,W]
-            grd_feature_list.append(grd_feature)
-
-        grd_feat_list = self.GrdDec(grd_feature_list[0], grd_feature_list[1], grd_feature_list[2])
-        
+        heading = gt_heading
         corr_maps = []
+
         for level in range(len(sat_feat_list)):
             meter_per_pixel = self.meters_per_pixel[level]
 
             sat_feat = sat_feat_list[level]
-            grd_feature = grd_feat_list[level]
+            grd_feat = grd_feat_list[level]
 
             A = sat_feat.shape[-1]
-            # sat_features_to_RGB(sat_feat, grd_feature)
-            
+            grd_feat_proj, _, u, mask = self.project_grd_to_map(
+                grd_feat, None, shift_u, shift_v, heading, left_camera_k, A, ori_grdH, ori_grdW)
+
             crop_H = int(A - self.args.shift_range_lat * 3 / meter_per_pixel)
             crop_W = int(A - self.args.shift_range_lon * 3 / meter_per_pixel)
-            g2s_feat = TF.center_crop(grd_feature, [crop_H, crop_W])
-            g2s_feat = F.normalize(g2s_feat.reshape(B, -1)).reshape(B, -1, crop_H, crop_W)
+            g2s_feat = TF.center_crop(grd_feat_proj, [crop_H, crop_W])
+            # g2s_feat = F.normalize(g2s_feat.reshape(B, -1)).reshape(B, -1, crop_H, crop_W)
 
             s_feat = sat_feat.reshape(1, -1, A, A)  # [B, C, H, W]->[1, B*C, H, W]
             corr = F.conv2d(s_feat, g2s_feat, groups=B)[0]  # [B, H, W]
@@ -611,7 +478,7 @@ class Model(nn.Module):
             B, corr_H, corr_W = corr.shape
 
             corr_maps.append(corr)
-            
+
             max_index = torch.argmin(corr.reshape(B, -1), dim=1)
             pred_u = (max_index % corr_W - corr_W / 2) * meter_per_pixel  # / self.args.shift_range_lon
             pred_v = -(max_index // corr_W - corr_H / 2) * meter_per_pixel  # / self.args.shift_range_lat
@@ -622,10 +489,16 @@ class Model(nn.Module):
             pred_u1 = pred_u * cos + pred_v * sin
             pred_v1 = - pred_u * sin + pred_v * cos
 
+
         # vis
+        # grd_img = to_pil_image(grd_img_left[0])
+        # sat_img = to_pil_image(sat_map[0])
+        # sat_img.save('sat_img.png')
+        # grd_img.save('grd_imt.png')
+        # single_features_to_RGB(grd_feat)
+        # sat_features_to_RGB(sat_feat, grd_feat_proj)
         # vis_corr(corr)
-        # all_features_to_RGB(sat_feat, grd_feature_list[2], grd_feat_proj)
-        # g2s_feat_to_RGB(g2s_feat) 
+
         if mode == 'train':
             return self.triplet_loss(corr_maps, gt_shift_u, gt_shift_v, gt_heading)
         else:
@@ -1126,3 +999,4 @@ class Model(nn.Module):
                                   pred_orien, mode)
 
             return pred_u, pred_v, pred_orien[:, 0] * self.args.rotation_range
+

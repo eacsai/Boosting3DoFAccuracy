@@ -6,8 +6,8 @@ import os
 
 import torchvision.utils
 
-os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1'
+# os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1'
 
 import torch
 import torch.nn as nn
@@ -28,7 +28,7 @@ import numpy as np
 import os
 import argparse
 
-from utils import gps2distance
+from boost_utils import gps2distance
 import time
 
 
@@ -280,7 +280,7 @@ def train(net, args, save_path):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--resume', type=int, default=0, help='resume the trained model')
-    parser.add_argument('--test', type=int, default=1, help='test with trained model')
+    parser.add_argument('--test', type=int, default=0, help='test with trained model')
     parser.add_argument('--debug', type=int, default=0, help='debug to dump middle processing images')
 
     parser.add_argument('--epochs', type=int, default=20, help='number of training epochs')
@@ -293,7 +293,7 @@ def parse_args():
 
     parser.add_argument('--use_uncertainty', type=int, default=1, help='0 or 1')
     
-    parser.add_argument('--area', type=str, default='cross', help='same or cross')
+    parser.add_argument('--area', type=str, default='same', help='same or cross')
     parser.add_argument('--multi_gpu', type=int, default=1, help='0 or 1')
 
     args = parser.parse_args()
@@ -329,9 +329,9 @@ if __name__ == '__main__':
     save_path = getSavePath(args)
 
     net = ModelVigor(args)
-    if args.multi_gpu:
-        # net = MultiGPU(net, dim=0)
-        net = nn.DataParallel(net, dim=0)
+    # if args.multi_gpu:
+    #     # net = MultiGPU(net, dim=0)
+    #     net = nn.DataParallel(net, dim=0)
 
     ### cudaargs.epochs, args.debug)
     net.to(device)
