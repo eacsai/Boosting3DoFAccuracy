@@ -33,7 +33,7 @@
       "console": "integratedTerminal",
       "args": [
         "--batch_size",
-        "24",
+        "48",
         "--proj",
         "geo",
         "--name",

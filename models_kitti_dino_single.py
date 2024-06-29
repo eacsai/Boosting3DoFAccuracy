@@ -461,7 +461,7 @@ class Model(nn.Module):
         crop_H = int(A - self.args.shift_range_lat * 3 / meter_per_pixel)
         crop_W = int(A - self.args.shift_range_lon * 3 / meter_per_pixel)
         g2s_feat = TF.center_crop(grd_feat_proj, [crop_H, crop_W])
-        # g2s_feat = F.normalize(g2s_feat.reshape(B, -1)).reshape(B, -1, crop_H, crop_W)
+        g2s_feat = F.normalize(g2s_feat.reshape(B, -1)).reshape(B, -1, crop_H, crop_W)
 
         s_feat = sat_feat.reshape(1, -1, A, A)  # [B, C, H, W]->[1, B*C, H, W]
         corr = F.conv2d(s_feat, g2s_feat, groups=B)[0]  # [B, H, W]
