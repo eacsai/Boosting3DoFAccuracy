@@ -96,21 +96,21 @@ class DPT(nn.Module):
         self.ref_3 = FeatureFusionBlock(hidden_dim, kernel_size, with_skip=False)
 
         self.out_conv_1 = nn.Sequential(
-            nn.Conv2d(hidden_dim, hidden_dim, 3, padding=1),
-            nn.ReLU(True),
             nn.Conv2d(hidden_dim, int(hidden_dim / 2), 3, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(int(hidden_dim / 2), int(hidden_dim / 2), 3, padding=1),
         )
         self.out_conv_2 = nn.Sequential(
             nn.ReLU(True),
-            nn.Conv2d(int(hidden_dim / 2), int(hidden_dim / 2), 3, padding=1),
-            nn.ReLU(True),
             nn.Conv2d(int(hidden_dim / 2), int(hidden_dim / 4), 3, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(int(hidden_dim / 4), int(hidden_dim / 4), 3, padding=1),
         )
         self.out_conv_3 = nn.Sequential(
             nn.ReLU(True),
-            nn.Conv2d(int(hidden_dim / 4), int(hidden_dim / 4), 3, padding=1),
+            nn.Conv2d(int(hidden_dim / 4), int(hidden_dim / 8), 3, padding=1),
             nn.ReLU(True),
-            nn.Conv2d(int(hidden_dim / 4), output_dim, 3, padding=1),
+            nn.Conv2d(int(hidden_dim / 8), int(hidden_dim / 8), 3, padding=1),
         )
 
     def forward(self, feats):

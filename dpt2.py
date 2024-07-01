@@ -82,7 +82,7 @@ class Linear(nn.Module):
         return self.conv(feats)
 
 class DPT(nn.Module):
-    def __init__(self, input_dims, output_dim=128, hidden_dim=512, kernel_size=3):
+    def __init__(self, input_dims, output_dim=64, hidden_dim=512, kernel_size=3):
         super().__init__()
         assert len(input_dims) == 4
         self.conv_0 = nn.Conv2d(input_dims[0], hidden_dim, 1, padding=0)
@@ -106,9 +106,9 @@ class DPT(nn.Module):
             nn.Conv2d(int(hidden_dim / 4), int(hidden_dim / 4), 3, padding=1),
         )
         self.out_conv_3 = nn.Sequential(
-            nn.Conv2d(hidden_dim, output_dim, 3, padding=1),
+            nn.Conv2d(hidden_dim, int(hidden_dim / 8), 3, padding=1),
             nn.ReLU(True),
-            nn.Conv2d(output_dim, output_dim, 3, padding=1),
+            nn.Conv2d(int(hidden_dim / 8), int(hidden_dim / 8), 3, padding=1),
         )
 
     def forward(self, feats):

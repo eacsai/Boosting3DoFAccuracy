@@ -3,8 +3,8 @@
 
 import os
 
-# os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
-# os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 import torch
 import torch.optim as optim
@@ -15,7 +15,7 @@ import ssl
 
 ssl._create_default_https_context = ssl._create_unverified_context  # for downloading pretrained VGG weights
 
-from models_kitti_dino_single import Model
+from models_kitti_dino_mutil import Model
 
 import numpy as np
 import os
@@ -227,7 +227,7 @@ def train(net, lr, args, save_path):
         net.train()
 
         base_lr = lr
-        base_lr = base_lr * ((1.0 - float(epoch) / 100.0) ** (1.0))
+        base_lr = base_lr * ((1.0 - float(epoch) / 10.0) ** (2.0))
 
         optimizer = optim.Adam(net.parameters(), lr=base_lr)
         optimizer.zero_grad()

@@ -74,9 +74,9 @@ class DPT(nn.Module):
         # Inherit from parent
         super().__init__()
         
-        features_per_token = 768
+        features_per_token = 768 * 2
         reassembly_features_list = [96, 192, 384, 768]
-        fusion_channels = 64
+        fusion_channels = 128
         # Store models for use in forward pass
         self.reassemble = ReassembleModel(features_per_token, reassembly_features_list, fusion_channels)
         self.fusion = FusionModel(fusion_channels)
